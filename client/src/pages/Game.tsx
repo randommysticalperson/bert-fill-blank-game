@@ -74,13 +74,19 @@ function BlankPlaceholder({ wordCount = 1, dim = false }: { wordCount?: number; 
 
 /**
  * Render a sentence with all [MASK] tokens replaced by styled blanks.
- * In consecutive mode, only the active mask is shown as blank; earlier ones
- * show their correct answer, later ones show a dimmed placeholder.
+ * In consecutive mode:
+ *  - Past blanks show the player's actual typed answer, coloured green (correct)
+ *    or red (incorrect) depending on whether it matched.
+ *  - The active blank shows the word-count placeholder.
+ *  - Future blanks show a dimmed placeholder.
  */
 function renderSentenceConsecutive(
   text: string,
   activeMaskIndex: number,
-  revealedAnswers: (string | null)[],
+  /** The player's typed answers for prior blanks (index 0 … activeMaskIndex-1) */
+  priorPlayerAnswers: string[],
+  /** The correct answers for prior blanks (to determine correct/incorrect colour) */
+  revealedCorrect: (string | null)[],
   maskWordCounts?: number[]
 ) {
   const parts = text.split("[MASK]");
@@ -88,16 +94,26 @@ function renderSentenceConsecutive(
     <span>
       {parts.map((part, i) => {
         if (i === parts.length - 1) return <span key={i}>{part}</span>;
-        const answer = revealedAnswers[i];
         const isActive = i === activeMaskIndex;
         const isPast = i < activeMaskIndex;
         const wc = maskWordCounts?.[i] ?? 1;
+        const playerAns = priorPlayerAnswers[i] ?? "";
+        const correctAns = revealedCorrect[i] ?? "";
+        const wasCorrect = playerAns.trim().toLowerCase() === correctAns.trim().toLowerCase();
         return (
           <span key={i}>
             {part}
-            {isPast && answer ? (
-              <span className="inline-block px-2 py-0.5 mx-0.5 rounded bg-correct/20 text-correct font-semibold text-[0.9em] border border-correct/30">
-                {answer}
+            {isPast && playerAns ? (
+              <span
+                className={[
+                  "inline-block px-2 py-0.5 mx-0.5 rounded font-semibold text-[0.9em] border",
+                  wasCorrect
+                    ? "bg-correct/20 text-correct border-correct/30"
+                    : "bg-incorrect/20 text-incorrect border-incorrect/30",
+                ].join(" ")}
+                title={wasCorrect ? "Correct!" : `Correct: ${correctAns}`}
+              >
+                {playerAns}
               </span>
             ) : isActive ? (
               <BlankPlaceholder wordCount={wc} />
@@ -280,6 +296,8 @@ export default function Game() {
   // Consecutive-specific: which mask index we're currently on
   const [maskIndex, setMaskIndex] = useState(0);
   const [revealedAnswers, setRevealedAnswers] = useState<(string | null)[]>([]);
+  // The player's actual typed answers for prior blanks (used as BERT context)
+  const [priorAnswers, setPriorAnswers] = useState<string[]>([]);
 
   // Parallel-specific: one input per mask
   const [parallelAnswers, setParallelAnswers] = useState<string[]>([]);
@@ -331,6 +349,7 @@ export default function Game() {
     setHintText(null);
     setMaskIndex(0);
     setRevealedAnswers([]);
+    setPriorAnswers([]);
     const mc = sentences[currentIndex]?.maskCount ?? 1;
     setParallelAnswers(Array(mc).fill(""));
     setParallelHintsUsed(Array(mc).fill(false));
@@ -363,19 +382,26 @@ export default function Game() {
       return;
     }
 
+    const trimmedAnswer = playerAnswer.trim();
     submitAnswer.mutate(
       {
         sessionId,
         sentenceId: currentSentence.id,
-        playerAnswer: playerAnswer.trim(),
+        playerAnswer: trimmedAnswer,
         hintUsed,
         difficulty,
         bertModel: bertModelKey,
         maskIndex,
+        // Pass all prior player answers so BERT uses them as context
+        priorAnswers: gameMode === "consecutive" ? priorAnswers : [],
       },
       {
         onSuccess(data) {
           if (gameMode === "consecutive") {
+            // Record the player's answer for this blank (used as context for next blank)
+            const updatedPriorAnswers = [...priorAnswers, trimmedAnswer];
+            setPriorAnswers(updatedPriorAnswers);
+
             // Reveal this blank's correct answer inline in the sentence
             setRevealedAnswers((prev) => {
               const next = [...prev];
@@ -395,7 +421,7 @@ export default function Game() {
               toast[data.isCorrect ? "success" : "error"](
                 data.isCorrect
                   ? `+${data.pointsEarned} pts — Blank ${maskIndex + 1} correct!`
-                  : `Blank ${maskIndex + 1}: the answer was “${data.correctAnswer}”`,
+                  : `Blank ${maskIndex + 1}: the answer was "${data.correctAnswer}"`,
                 { duration: 2500 }
               );
               // Remain in "question" phase — do NOT advance sentence here
@@ -483,7 +509,14 @@ export default function Game() {
     if (!currentSentence || hintUsed || hintLoading) return;
     setHintLoading(true);
     getHint.mutate(
-      { sentenceId: currentSentence.id, difficulty, bertModel: bertModelKey, maskIndex },
+      {
+        sentenceId: currentSentence.id,
+        difficulty,
+        bertModel: bertModelKey,
+        maskIndex,
+        // Consecutive: give BERT the player's prior answers as context
+        priorAnswers: gameMode === "consecutive" ? priorAnswers : [],
+      },
       {
         onSuccess(data) {
           setHintText(data.hint);
@@ -493,7 +526,7 @@ export default function Game() {
         onError() { toast.error("Could not load hint."); setHintLoading(false); },
       }
     );
-  }, [currentSentence, difficulty, getHint, hintUsed, hintLoading, maskIndex]);
+  }, [currentSentence, difficulty, getHint, hintUsed, hintLoading, maskIndex, gameMode, priorAnswers]);
 
   // ── Hint: parallel (per-mask) ─────────────────────────────────────────────
   const handleParallelHint = useCallback((idx: number) => {
@@ -614,7 +647,7 @@ export default function Game() {
               {/* Sentence */}
               <p className="font-display text-xl sm:text-2xl leading-relaxed mb-8 text-[var(--color-foreground)]">
                 {gameMode === "consecutive"
-                  ? renderSentenceConsecutive(currentSentence.text, maskIndex, revealedAnswers, currentSentence.maskWordCounts)
+                  ? renderSentenceConsecutive(currentSentence.text, maskIndex, priorAnswers, revealedAnswers, currentSentence.maskWordCounts)
                   : gameMode === "parallel"
                   ? renderSentenceParallel(currentSentence.text, currentSentence.maskWordCounts)
                   : renderSentenceClassic(currentSentence.text, currentSentence.maskWordCounts?.[0] ?? 1)}

@@ -434,3 +434,67 @@ describe("game mode labels", () => {
     expect(VALID_MODES).toContain("parallel");
   });
 });
+
+// ── Context-aware consecutive prediction ─────────────────────────────────────
+
+/**
+ * Replicate the buildSentenceForMask logic here so we can unit-test it
+ * without importing the router (which requires DB).
+ */
+function buildSentenceForMask(
+  text: string,
+  masks: string[],
+  activeIndex: number,
+  priorAnswers: string[] = []
+): string {
+  let idx = 0;
+  return text.replace(/\[MASK\]/g, () => {
+    const current = idx++;
+    if (current === activeIndex) return "[MASK]";
+    if (current < activeIndex) return priorAnswers[current] ?? masks[current] ?? "[MASK]";
+    return masks[current] ?? "[MASK]";
+  });
+}
+
+describe("buildSentenceForMask — context-aware consecutive prediction", () => {
+  const text = "The [MASK] is a [MASK] organ in the body.";
+  const masks = ["heart", "vital"];
+
+  it("blank 0: no prior answers — other mask filled with correct answer", () => {
+    const result = buildSentenceForMask(text, masks, 0, []);
+    expect(result).toBe("The [MASK] is a vital organ in the body.");
+  });
+
+  it("blank 1 with correct prior answer: prior blank filled with player's correct word", () => {
+    const result = buildSentenceForMask(text, masks, 1, ["heart"]);
+    expect(result).toBe("The heart is a [MASK] organ in the body.");
+  });
+
+  it("blank 1 with wrong prior answer: prior blank filled with player's wrong word", () => {
+    const result = buildSentenceForMask(text, masks, 1, ["lung"]);
+    expect(result).toBe("The lung is a [MASK] organ in the body.");
+  });
+
+  it("falls back to correct answer when priorAnswers is shorter than maskIndex", () => {
+    const result = buildSentenceForMask(text, masks, 1, []);
+    expect(result).toBe("The heart is a [MASK] organ in the body.");
+  });
+
+  it("three-mask sentence: blank 2 uses player answers for blanks 0 and 1", () => {
+    const text3 = "The [MASK] pumps [MASK] through [MASK] vessels.";
+    const masks3 = ["heart", "blood", "arterial"];
+    const result = buildSentenceForMask(text3, masks3, 2, ["heart", "oxygen"]);
+    expect(result).toBe("The heart pumps oxygen through [MASK] vessels.");
+  });
+
+  it("classic mode (empty priorAnswers): all other masks filled with correct answers", () => {
+    const result = buildSentenceForMask(text, masks, 0);
+    expect(result).toBe("The [MASK] is a vital organ in the body.");
+  });
+
+  it("active mask always stays as [MASK] regardless of priorAnswers", () => {
+    const result = buildSentenceForMask(text, masks, 1, ["heart"]);
+    expect(result).toContain("[MASK]");
+    expect(result).not.toContain("[MASK] is a [MASK]");
+  });
+});

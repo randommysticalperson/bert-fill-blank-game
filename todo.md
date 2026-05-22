@@ -78,3 +78,11 @@
 - [x] Render [MASK] as _ _ _ (one underscore per word) in the sentence display
 - [x] Update all three modes (classic, consecutive, parallel)
 - [x] Test and checkpoint
+
+## Rewrite: Consecutive mode — context-aware N-blank prediction
+- [x] Backend: submitAnswer for consecutive builds a context sentence where prior blanks are filled with player's answers, then predicts the current [MASK] using that context
+- [x] Backend: getHint for consecutive also uses context-aware sentence
+- [x] Frontend: show all N blanks in the sentence at once; active blank is highlighted, prior blanks show player's answers (correct/incorrect coloured), future blanks show word-count placeholders
+- [x] Frontend: after each blank, stay on same sentence, update context, move to next blank
+- [x] Frontend: full feedback panel only after last blank — shows all N answers in a summary row
+- [x] Tests: update consecutive tests for context-aware prediction

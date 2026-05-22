@@ -129,19 +129,29 @@ async function getPredictions(
 }
 
 /**
- * Build a version of the sentence with all [MASK] tokens replaced except the
- * one at `activeIndex`, which is left as [MASK] for the sidecar/LLM to predict.
- * Tokens already answered are filled in with their correct answer.
+ * Build a version of the sentence for prediction.
+ *
+ * - The token at `activeIndex` stays as [MASK] for BERT/LLM to fill.
+ * - Tokens BEFORE activeIndex are filled with `priorAnswers[i]` (the player's
+ *   actual answers so far) — this gives BERT real context from the game.
+ * - Tokens AFTER activeIndex are filled with the correct answer (so the model
+ *   sees a grammatically complete sentence on both sides of the active blank).
+ *
+ * For classic / parallel mode, pass an empty priorAnswers array.
  */
 function buildSentenceForMask(
   text: string,
   masks: string[],
-  activeIndex: number
+  activeIndex: number,
+  priorAnswers: string[] = []
 ): string {
   let idx = 0;
   return text.replace(/\[MASK\]/g, () => {
     const current = idx++;
     if (current === activeIndex) return "[MASK]";
+    // Before the active blank: use what the player actually typed
+    if (current < activeIndex) return priorAnswers[current] ?? masks[current] ?? "[MASK]";
+    // After the active blank: use the correct answer for grammatical context
     return masks[current] ?? "[MASK]";
   });
 }
@@ -242,6 +252,11 @@ export const gameRouter = router({
         bertModel: z.enum(BERT_MODEL_KEYS).optional().default("general"),
         /** Which [MASK] index to hint (0-based). Default 0 for classic mode. */
         maskIndex: z.number().int().min(0).optional().default(0),
+        /**
+         * Consecutive mode: the player's answers for all prior blanks.
+         * Used to build a context-aware sentence for BERT prediction.
+         */
+        priorAnswers: z.array(z.string()).optional().default([]),
       })
     )
     .mutation(async ({ input }) => {
@@ -254,8 +269,8 @@ export const gameRouter = router({
       })();
       const correctAnswer = masks[input.maskIndex] ?? sentence.answer;
 
-      // Build a sentence with only the target [MASK] active
-      const targetSentence = buildSentenceForMask(sentence.text, masks, input.maskIndex);
+      // Build a context-aware sentence: prior blanks filled with player's answers
+      const targetSentence = buildSentenceForMask(sentence.text, masks, input.maskIndex, input.priorAnswers);
       const { tokens, source } = await getPredictions(targetSentence, input.bertModel, 5);
       const combined = Array.from(new Set([...tokens, correctAnswer]));
 
@@ -272,7 +287,13 @@ export const gameRouter = router({
       };
     }),
 
-  /** Submit an answer for classic or consecutive mode (one mask at a time) */
+  /**
+   * Submit an answer for classic or consecutive mode (one mask at a time).
+   *
+   * In consecutive mode, pass `priorAnswers` — the player's answers for all
+   * blanks answered so far. BERT will use those as context when predicting the
+   * current blank, giving a chain of conditioned predictions.
+   */
   submitAnswer: publicProcedure
     .input(
       z.object({
@@ -284,6 +305,11 @@ export const gameRouter = router({
         bertModel: z.enum(BERT_MODEL_KEYS).optional().default("general"),
         /** Which [MASK] index is being answered (0-based). Default 0 for classic. */
         maskIndex: z.number().int().min(0).optional().default(0),
+        /**
+         * Consecutive mode only: the player's answers for all prior blanks
+         * (index 0 … maskIndex-1). BERT uses these as context for the current blank.
+         */
+        priorAnswers: z.array(z.string()).optional().default([]),
       })
     )
     .mutation(async ({ input }) => {
@@ -299,8 +325,13 @@ export const gameRouter = router({
       })();
       const correctAnswer = masks[input.maskIndex] ?? sentence.answer;
 
-      // Build sentence with only the target mask active for prediction
-      const targetSentence = buildSentenceForMask(sentence.text, masks, input.maskIndex);
+      // Build context-aware sentence: prior blanks filled with player's actual answers
+      const targetSentence = buildSentenceForMask(
+        sentence.text,
+        masks,
+        input.maskIndex,
+        input.priorAnswers
+      );
       const { tokens, source } = await getPredictions(targetSentence, input.bertModel, 5);
       const combined = Array.from(new Set([...tokens, correctAnswer]));
 
@@ -319,8 +350,6 @@ export const gameRouter = router({
         maskIndex: input.maskIndex,
       });
 
-      // Only update session score when the last mask of a sentence is answered
-      // (for consecutive mode the caller decides when to advance)
       await updateGameSession(input.sessionId, {
         correctAnswers: session.correctAnswers + (isCorrect ? 1 : 0),
         totalScore: session.totalScore + pointsEarned,
