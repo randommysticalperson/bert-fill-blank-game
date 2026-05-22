@@ -25,6 +25,7 @@ interface SentenceItem {
 
 interface RoundResult {
   isCorrect: boolean;
+  matchType?: string;  // "exact" | "stem" | "prefix" | "close"
   pointsEarned: number;
   correctAnswer: string;
   allAnswers?: string[];
@@ -35,6 +36,7 @@ interface RoundResult {
     playerAnswer: string;
     correctAnswer: string;
     isCorrect: boolean;
+    matchType?: string;
     pointsEarned: number;
   }[];
   totalPointsEarned?: number;
@@ -398,6 +400,7 @@ export default function Game() {
         onSuccess(data) {
           setRoundResult({
             isCorrect: data.isCorrect,
+            matchType: data.matchType,
             pointsEarned: data.pointsEarned,
             correctAnswer: data.correctAnswer,
             predictions: data.predictions,
@@ -443,7 +446,7 @@ export default function Game() {
             correctAnswer: data.allAnswers?.[0] ?? "",
             allAnswers: data.allAnswers,
             predictions: [],
-            parallelResults: data.results,
+            parallelResults: data.results as RoundResult["parallelResults"],
             totalPointsEarned: data.totalPointsEarned,
             totalCorrect: data.totalCorrect,
           });
@@ -776,8 +779,21 @@ export default function Game() {
                   {gameMode !== "parallel" && (
                     <div className="flex items-start justify-between gap-4 mb-3">
                       <div>
-                        <div className={`font-semibold text-base mb-1 ${roundResult.isCorrect ? "text-correct" : "text-incorrect"}`}>
-                          {roundResult.isCorrect ? "Correct!" : "Incorrect"}
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`font-semibold text-base ${roundResult.isCorrect ? "text-correct" : "text-incorrect"}`}>
+                            {roundResult.isCorrect ? "Correct!" : "Incorrect"}
+                          </span>
+                          {roundResult.isCorrect && roundResult.matchType && roundResult.matchType !== "exact" && (
+                            <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${
+                              roundResult.matchType === "stem"   ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" :
+                              roundResult.matchType === "prefix" ? "bg-sky-500/10 border-sky-500/30 text-sky-400" :
+                              roundResult.matchType === "close"  ? "bg-amber-500/10 border-amber-500/30 text-amber-400" : ""
+                            }`}>
+                              {roundResult.matchType === "stem"   ? "Inflection accepted" :
+                               roundResult.matchType === "prefix" ? "Prefix match" :
+                               roundResult.matchType === "close"  ? "Close enough" : ""}
+                            </span>
+                          )}
                         </div>
                         {!roundResult.isCorrect && (
                           <div className="text-sm text-[var(--color-muted-foreground)]">
@@ -820,12 +836,21 @@ export default function Game() {
                               <span className={`font-medium ${r.isCorrect ? "text-correct" : "text-incorrect"}`}>
                                 Blank {r.maskIndex + 1}
                               </span>
-                              <span className="text-[var(--color-muted-foreground)]">
-                                You: <strong className="text-[var(--color-foreground)]">{r.playerAnswer || "—"}</strong>
+                            <span className="text-[var(--color-muted-foreground)]">
+                                You: <strong className="text-[var(--color-foreground)]">{r.playerAnswer || "\u2014"}</strong>
                               </span>
+                              {r.isCorrect && r.matchType && r.matchType !== "exact" && (
+                                <span className={`text-xs px-1.5 py-0.5 rounded-full border font-medium ${
+                                  r.matchType === "stem"   ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" :
+                                  r.matchType === "prefix" ? "bg-sky-500/10 border-sky-500/30 text-sky-400" :
+                                  r.matchType === "close"  ? "bg-amber-500/10 border-amber-500/30 text-amber-400" : ""
+                                }`}>
+                                  {r.matchType === "stem" ? "~inflection" : r.matchType === "prefix" ? "~prefix" : "~close"}
+                                </span>
+                              )}
                               {!r.isCorrect && (
                                 <span className="text-[var(--color-muted-foreground)]">
-                                  → <strong className="text-[var(--color-foreground)]">{r.correctAnswer}</strong>
+                                  \u2192 <strong className="text-[var(--color-foreground)]">{r.correctAnswer}</strong>
                                 </span>
                               )}
                             </div>

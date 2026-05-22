@@ -498,3 +498,68 @@ describe("buildSentenceForMask — context-aware consecutive prediction", () => 
     expect(result).not.toContain("[MASK] is a [MASK]");
   });
 });
+
+
+// -- Flexible answer matching tests --
+describe("flexible answer matching", () => {
+  function normalise(s: string): string {
+    return s.trim().toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, " ");
+  }
+  function stem(word: string): string {
+    const w = word.toLowerCase();
+    if (w.length < 4) return w;
+    const suffixes = ["ational","tional","enci","anci","izer","ising","izing","ation","ness","ment","tion","ing","ied","ies","est","ers","er","ed","ly","al","ic","ful","ous","ive","ise","ize","ion","s"];
+    for (const suffix of suffixes) {
+      if (w.endsWith(suffix) && w.length - suffix.length >= 3) return w.slice(0, w.length - suffix.length);
+    }
+    return w;
+  }
+  function editDistance(a: string, b: string): number {
+    const m = a.length, n = b.length;
+    const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+      Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+    );
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1]! : 1 + Math.min(dp[i-1][j]!, dp[i][j-1]!, dp[i-1][j-1]!);
+      }
+    }
+    return dp[m][n]!;
+  }
+  function sharePrefix(a: string, b: string, minLen = 4): boolean {
+    if (a.length < minLen || b.length < minLen) return false;
+    const shorter = a.length <= b.length ? a : b;
+    const longer  = a.length <= b.length ? b : a;
+    return longer.startsWith(shorter.slice(0, minLen));
+  }
+  type MatchType = "exact" | "stem" | "prefix" | "close" | "none";
+  function flexMatch(player: string, candidates: string[]): { matched: boolean; matchType: MatchType } {
+    const p = normalise(player);
+    const pW = p.split(" ").filter(Boolean);
+    for (const candidate of candidates) {
+      const c = normalise(candidate);
+      const cW = c.split(" ").filter(Boolean);
+      if (p === c) return { matched: true, matchType: "exact" };
+      if (pW.length === cW.length && pW.every((pw, i) => stem(pw) === stem(cW[i] ?? "")))
+        return { matched: true, matchType: "stem" };
+      if (pW.length === 1 && cW.length === 1 && sharePrefix(pW[0]!, cW[0]!, 4))
+        return { matched: true, matchType: "prefix" };
+      if (p.length >= 4 && c.length >= 4) {
+        const maxDist = Math.max(1, Math.floor(Math.min(p.length, c.length) / 5));
+        if (editDistance(p, c) <= maxDist) return { matched: true, matchType: "close" };
+      }
+    }
+    return { matched: false, matchType: "none" };
+  }
+  it("exact match case-insensitive", () => { expect(flexMatch("Heart", ["heart"]).matchType).toBe("exact"); });
+  it("exact match strips punctuation", () => { expect(flexMatch("heart.", ["heart"]).matchType).toBe("exact"); });
+  it("stem match inflected form", () => { const r = flexMatch("runs", ["run"]); expect(r.matched).toBe(true); expect(r.matchType).toBe("stem"); });
+  it("stem match plural", () => { const r = flexMatch("neurons", ["neuron"]); expect(r.matched).toBe(true); expect(r.matchType).toBe("stem"); });
+  it("prefix match truncated word", () => { const r = flexMatch("cardio", ["cardiovascular"]); expect(r.matched).toBe(true); expect(r.matchType).toBe("prefix"); });
+  it("close match single typo", () => { const r = flexMatch("hearth", ["heart"]); expect(r.matched).toBe(true); }); // prefix or close both accepted
+  it("no match short words below threshold", () => { expect(flexMatch("cat", ["bat"]).matched).toBe(false); });
+  it("no match completely different word", () => { expect(flexMatch("banana", ["heart"]).matched).toBe(false); });
+  it("multi-word exact match", () => { const r = flexMatch("blood pressure", ["blood pressure"]); expect(r.matched).toBe(true); expect(r.matchType).toBe("exact"); });
+  it("multi-word stem match", () => { const r = flexMatch("blood pressures", ["blood pressure"]); expect(r.matched).toBe(true); expect(r.matchType).toBe("stem"); });
+});
+

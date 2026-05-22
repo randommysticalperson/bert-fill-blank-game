@@ -100,3 +100,11 @@
 - [x] Wire ConsecutiveGame into Game.tsx routing
 - [x] Update tests for new consecutive procedures
 - [x] Checkpoint and deliver
+
+## Feature: Flexible answer matching
+- [x] Replace exact isMatch with multi-layer flexible matcher (stem, prefix, edit-distance, synonym)
+- [x] Return matchType (exact/stem/close/synonym) in submitAnswer response
+- [x] Show match quality badge in feedback panel (e.g. "Close match", "Synonym accepted")
+- [x] Update ConsecutiveGame to show match quality per step
+- [x] Update tests to cover flexible matching cases
+- [x] Checkpoint and deliver

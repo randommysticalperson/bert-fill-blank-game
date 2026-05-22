@@ -36,6 +36,7 @@ interface SentenceItem {
 
 interface StepResult {
   isCorrect: boolean;
+  matchType?: string;
   pointsEarned: number;
   correctAnswer: string;
   predictions: string[];
@@ -43,7 +44,7 @@ interface StepResult {
 
 interface SentenceSummary {
   sentenceText: string;
-  steps: { stepIndex: number; playerAnswer: string; correctAnswer: string; isCorrect: boolean; pointsEarned: number }[];
+  steps: { stepIndex: number; playerAnswer: string; correctAnswer: string; isCorrect: boolean; matchType?: string; pointsEarned: number }[];
   totalPoints: number;
 }
 
@@ -183,6 +184,7 @@ export default function ConsecutiveGame({ sessionId, sentences, difficulty, bert
     onSuccess(data) {
       const result: StepResult = {
         isCorrect: data.isCorrect,
+        matchType: data.matchType,
         pointsEarned: data.pointsEarned,
         correctAnswer: data.correctAnswer,
         predictions: data.predictions,
@@ -212,6 +214,7 @@ export default function ConsecutiveGame({ sessionId, sentences, difficulty, bert
             playerAnswer: ans,
             correctAnswer: data.allCorrect?.[i] ?? newResults[i]?.correctAnswer ?? "",
             isCorrect: newResults[i]?.isCorrect ?? false,
+            matchType: newResults[i]?.matchType,
             pointsEarned: newResults[i]?.pointsEarned ?? 0,
           })),
           totalPoints: newResults.reduce((s, r) => s + (r?.pointsEarned ?? 0), 0),
@@ -432,6 +435,15 @@ export default function ConsecutiveGame({ sessionId, sentences, difficulty, bert
                   {st.isCorrect ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
                   <span className="text-white/40 text-xs">Blank #{st.stepIndex + 1}</span>
                   <span className="font-medium">{st.playerAnswer}</span>
+                  {st.isCorrect && st.matchType && st.matchType !== "exact" && (
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full border font-medium ${
+                      st.matchType === "stem"   ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" :
+                      st.matchType === "prefix" ? "bg-sky-500/10 border-sky-500/30 text-sky-300" :
+                      st.matchType === "close"  ? "bg-amber-500/10 border-amber-500/30 text-amber-300" : ""
+                    }`}>
+                      {st.matchType === "stem" ? "~inflection" : st.matchType === "prefix" ? "~prefix" : "~close"}
+                    </span>
+                  )}
                   {!st.isCorrect && (
                     <span className="text-white/40 text-xs">→ correct: <span className="text-white/70">{st.correctAnswer}</span></span>
                   )}
