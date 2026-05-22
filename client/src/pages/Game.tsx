@@ -184,6 +184,7 @@ export default function Game() {
   const [, navigate] = useLocation();
   const params = new URLSearchParams(search);
   const difficulty = (params.get("difficulty") ?? "Easy") as Difficulty;
+  const bertModel = (params.get("bert") ?? "general") as string;
 
   const [phase, setPhase] = useState<Phase>("loading");
   const [sessionId, setSessionId] = useState<number | null>(null);
@@ -211,7 +212,7 @@ export default function Game() {
   // Start session on mount
   useEffect(() => {
     startSession.mutate(
-      { difficulty },
+      { difficulty, bertModel: bertModel as "general" | "medical" | "clinical" | "science" | "finance" | "legal" },
       {
         onSuccess(data) {
           setSessionId(data.sessionId);
@@ -239,7 +240,7 @@ export default function Game() {
     if (!currentSentence || hintUsed || hintLoading) return;
     setHintLoading(true);
     getHint.mutate(
-      { sentenceId: currentSentence.id, difficulty },
+      { sentenceId: currentSentence.id, difficulty, bertModel: bertModel as "general" | "medical" | "clinical" | "science" | "finance" | "legal" },
       {
         onSuccess(data) {
           setHintText(data.hint);
@@ -268,6 +269,7 @@ export default function Game() {
         playerAnswer: playerAnswer.trim(),
         hintUsed,
         difficulty,
+        bertModel: bertModel as "general" | "medical" | "clinical" | "science" | "finance" | "legal",
       },
       {
         onSuccess(data) {
@@ -310,7 +312,7 @@ export default function Game() {
     }
   };
 
-  const handleReplay = () => navigate(`/game?difficulty=${difficulty}`);
+  const handleReplay = () => navigate(`/game?difficulty=${difficulty}&bert=${bertModel}`);
   const handleHome = () => navigate("/");
 
   // ── Loading ────────────────────────────────────────────────────────────────
@@ -356,8 +358,13 @@ export default function Game() {
             <Home className="w-4 h-4" />
             <span className="hidden sm:inline">Home</span>
           </button>
-          <div className="text-xs font-medium px-3 py-1 rounded-full border border-[var(--color-border)] text-[var(--color-muted-foreground)]">
-            {difficulty}
+          <div className="flex items-center gap-2">
+            <div className="text-xs font-medium px-3 py-1 rounded-full border border-[var(--color-border)] text-[var(--color-muted-foreground)]">
+              {difficulty}
+            </div>
+            <div className="text-xs font-medium px-3 py-1 rounded-full border border-[var(--color-primary)]/40 text-[var(--color-primary)] capitalize">
+              {bertModel}
+            </div>
           </div>
         </div>
         <ScoreBar

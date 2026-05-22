@@ -112,3 +112,14 @@ temp/
 # Manus version file (auto-generated, not part of source)
 client/public/__manus__/version.json
 .project-config.json
+
+# BERT sidecar — downloaded model files (large, regenerate with export_model.py)
+bert_sidecar/models/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+.Python

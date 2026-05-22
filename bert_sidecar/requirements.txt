@@ -1,0 +1,14 @@
+# BERT ONNX Sidecar — Python dependencies
+# Install with:  pip install -r bert_sidecar/requirements.txt
+#
+# Pinned versions below are verified to work together on Python 3.11.
+# If you need GPU inference, replace onnxruntime with onnxruntime-gpu.
+
+torch==2.4.1                    # CPU build; install from https://download.pytorch.org/whl/cpu
+optimum[onnxruntime]==1.23.3    # Hugging Face optimum with ONNX export support
+onnxruntime==1.19.2             # CPU-only runtime; use onnxruntime-gpu for CUDA
+transformers>=4.40.0
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+numpy>=1.24.0
+pydantic>=2.0.0

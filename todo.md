@@ -32,3 +32,11 @@
 ## Phase 5: Tests & Delivery
 - [x] Vitest tests for backend procedures
 - [x] Final checkpoint and delivery
+
+## Sidecar (Option A — Local ONNX BERT)
+- [x] Install Python deps: transformers, optimum[onnxruntime], onnxruntime, fastapi, uvicorn
+- [x] Write bert_sidecar/export_model.py — download + ONNX export + INT8 quantize
+- [x] Write bert_sidecar/server.py — FastAPI /predict endpoint, model-selector, multi-model cache
+- [x] Update server/routers/game.ts — try sidecar first, fall back to LLM
+- [x] Write bert_sidecar/README.md — full local setup guide
+- [x] Smoke-test sidecar end-to-end in sandbox
