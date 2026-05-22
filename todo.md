@@ -40,3 +40,10 @@
 - [x] Update server/routers/game.ts — try sidecar first, fall back to LLM
 - [x] Write bert_sidecar/README.md — full local setup guide
 - [x] Smoke-test sidecar end-to-end in sandbox
+
+## Bug Fix: Questions not matching BERT model categories
+- [x] Add bertCategory column to sentences table (maps to BERT model keys)
+- [x] Re-seed sentences with domain-appropriate content per BERT category
+- [x] Update getSentencesByDifficulty to filter by bertCategory
+- [x] Update startSession to pass bertModel as category filter
+- [x] Update tests to cover category filtering

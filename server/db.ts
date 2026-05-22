@@ -61,13 +61,31 @@ export async function getUserByOpenId(openId: string) {
 
 // ── Sentences ────────────────────────────────────────────────────────────────
 
-export async function getSentencesByDifficulty(difficulty: Difficulty, limit = 10) {
+export async function getSentencesByDifficulty(
+  difficulty: Difficulty,
+  limit = 10,
+  bertCategory?: string
+) {
   const db = await getDb();
   if (!db) return [];
+
+  const conditions = [eq(sentences.difficulty, difficulty)];
+  if (bertCategory && bertCategory !== "general") {
+    // Filter to the chosen BERT model's category; fall back to general if none found
+    const categoryRows = await db
+      .select()
+      .from(sentences)
+      .where(and(eq(sentences.difficulty, difficulty), eq(sentences.bertCategory, bertCategory as any)))
+      .orderBy(sql`RAND()`)
+      .limit(limit);
+    if (categoryRows.length > 0) return categoryRows;
+    // Fallback: return general sentences if the requested category has none
+  }
+
   return db
     .select()
     .from(sentences)
-    .where(eq(sentences.difficulty, difficulty))
+    .where(and(...conditions))
     .orderBy(sql`RAND()`)
     .limit(limit);
 }

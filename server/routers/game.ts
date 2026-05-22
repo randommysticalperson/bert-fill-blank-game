@@ -171,7 +171,7 @@ export const gameRouter = router({
     )
     .mutation(async ({ input }) => {
       const difficulty = input.difficulty as Difficulty;
-      const allSentences = await getSentencesByDifficulty(difficulty, QUESTIONS_PER_GAME);
+      const allSentences = await getSentencesByDifficulty(difficulty, QUESTIONS_PER_GAME, input.bertModel);
       if (allSentences.length === 0)
         throw new TRPCError({ code: "NOT_FOUND", message: "No sentences found for this difficulty." });
 

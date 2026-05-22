@@ -1,0 +1,1 @@
+ALTER TABLE `sentences` ADD `bertCategory` enum('general','medical','clinical','science','finance','legal') DEFAULT 'general' NOT NULL;
