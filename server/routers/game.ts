@@ -288,11 +288,7 @@ export const gameRouter = router({
     }),
 
   /**
-   * Submit an answer for classic or consecutive mode (one mask at a time).
-   *
-   * In consecutive mode, pass `priorAnswers` — the player's answers for all
-   * blanks answered so far. BERT will use those as context when predicting the
-   * current blank, giving a chain of conditioned predictions.
+   * Classic mode: submit the single answer for a one-[MASK] sentence.
    */
   submitAnswer: publicProcedure
     .input(
@@ -303,13 +299,6 @@ export const gameRouter = router({
         hintUsed: z.boolean(),
         difficulty: z.enum(["Easy", "Medium", "Hard"]),
         bertModel: z.enum(BERT_MODEL_KEYS).optional().default("general"),
-        /** Which [MASK] index is being answered (0-based). Default 0 for classic. */
-        maskIndex: z.number().int().min(0).optional().default(0),
-        /**
-         * Consecutive mode only: the player's answers for all prior blanks
-         * (index 0 … maskIndex-1). BERT uses these as context for the current blank.
-         */
-        priorAnswers: z.array(z.string()).optional().default([]),
       })
     )
     .mutation(async ({ input }) => {
@@ -323,22 +312,17 @@ export const gameRouter = router({
       const masks: string[] = (() => {
         try { return JSON.parse(sentence.masks || "[]"); } catch { return [sentence.answer]; }
       })();
-      const correctAnswer = masks[input.maskIndex] ?? sentence.answer;
+      const correctAnswer = masks[0] ?? sentence.answer;
 
-      // Build context-aware sentence: prior blanks filled with player's actual answers
-      const targetSentence = buildSentenceForMask(
-        sentence.text,
-        masks,
-        input.maskIndex,
-        input.priorAnswers
-      );
+      // Classic: only one [MASK], no prior context needed
+      const targetSentence = buildSentenceForMask(sentence.text, masks, 0, []);
       const { tokens, source } = await getPredictions(targetSentence, input.bertModel, 5);
       const combined = Array.from(new Set([...tokens, correctAnswer]));
 
       const isCorrect = isMatch(input.playerAnswer, combined);
-      const basePoints = POINTS[difficulty].full;
-      const hintPoints = POINTS[difficulty].hint;
-      const pointsEarned = isCorrect ? (input.hintUsed ? hintPoints : basePoints) : 0;
+      const pointsEarned = isCorrect
+        ? (input.hintUsed ? POINTS[difficulty].hint : POINTS[difficulty].full)
+        : 0;
 
       await saveSessionAnswer({
         sessionId: input.sessionId,
@@ -347,7 +331,7 @@ export const gameRouter = router({
         isCorrect,
         hintUsed: input.hintUsed,
         pointsEarned,
-        maskIndex: input.maskIndex,
+        maskIndex: 0,
       });
 
       await updateGameSession(input.sessionId, {
@@ -355,15 +339,140 @@ export const gameRouter = router({
         totalScore: session.totalScore + pointsEarned,
       });
 
+      return { isCorrect, pointsEarned, correctAnswer, predictions: combined, source };
+    }),
+
+  /**
+   * Consecutive mode: submit one blank at a time, conditioned on all prior
+   * player answers. BERT sees the sentence with prior blanks filled by the
+   * player's actual typed words (right or wrong), giving true context chaining.
+   *
+   * Call this once per blank. The frontend accumulates priorAnswers and
+   * advances stepIndex after each call.
+   */
+  submitConsecutiveStep: publicProcedure
+    .input(
+      z.object({
+        sessionId: z.number(),
+        sentenceId: z.number(),
+        /** The player's answer for the current blank (stepIndex). */
+        playerAnswer: z.string(),
+        hintUsed: z.boolean(),
+        difficulty: z.enum(["Easy", "Medium", "Hard"]),
+        bertModel: z.enum(BERT_MODEL_KEYS).optional().default("general"),
+        /** 0-based index of the blank being answered right now. */
+        stepIndex: z.number().int().min(0),
+        /**
+         * The player's typed answers for blanks 0 … stepIndex-1.
+         * BERT uses these as left-context when predicting the current blank.
+         */
+        priorAnswers: z.array(z.string()),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const sentence = await getSentenceById(input.sentenceId);
+      if (!sentence) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const session = await getGameSession(input.sessionId);
+      if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "Session not found." });
+
+      const difficulty = input.difficulty as Difficulty;
+      const masks: string[] = (() => {
+        try { return JSON.parse(sentence.masks || "[]"); } catch { return [sentence.answer]; }
+      })();
+
+      if (input.stepIndex >= masks.length)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "stepIndex out of range." });
+
+      const correctAnswer = masks[input.stepIndex]!;
+
+      // Build the context-aware sentence:
+      //   blanks 0 … stepIndex-1  → player's actual prior answers
+      //   blank  stepIndex         → [MASK]  (what BERT predicts)
+      //   blanks stepIndex+1 … N  → correct answers (right-context for grammar)
+      const contextSentence = buildSentenceForMask(
+        sentence.text,
+        masks,
+        input.stepIndex,
+        input.priorAnswers
+      );
+      const { tokens, source } = await getPredictions(contextSentence, input.bertModel, 5);
+      const combined = Array.from(new Set([...tokens, correctAnswer]));
+
+      const isCorrect = isMatch(input.playerAnswer, combined);
+      const pointsEarned = isCorrect
+        ? (input.hintUsed ? POINTS[difficulty].hint : POINTS[difficulty].full)
+        : 0;
+
+      await saveSessionAnswer({
+        sessionId: input.sessionId,
+        sentenceId: input.sentenceId,
+        playerAnswer: input.playerAnswer,
+        isCorrect,
+        hintUsed: input.hintUsed,
+        pointsEarned,
+        maskIndex: input.stepIndex,
+      });
+
+      await updateGameSession(input.sessionId, {
+        correctAnswers: session.correctAnswers + (isCorrect ? 1 : 0),
+        totalScore: session.totalScore + pointsEarned,
+      });
+
+      const isLastStep = input.stepIndex >= masks.length - 1;
       return {
         isCorrect,
         pointsEarned,
         correctAnswer,
-        allAnswers: masks,
         predictions: combined,
         source,
-        totalMasks: masks.length,
-        isLastMask: input.maskIndex >= masks.length - 1,
+        totalSteps: masks.length,
+        isLastStep,
+        /** All correct answers — returned on last step for the summary panel */
+        allCorrect: isLastStep ? masks : undefined,
+      };
+    }),
+
+  /**
+   * Consecutive mode hint: get a hint for the current blank, conditioned on
+   * all prior player answers.
+   */
+  getConsecutiveHint: publicProcedure
+    .input(
+      z.object({
+        sentenceId: z.number(),
+        difficulty: z.enum(["Easy", "Medium", "Hard"]),
+        bertModel: z.enum(BERT_MODEL_KEYS).optional().default("general"),
+        stepIndex: z.number().int().min(0),
+        priorAnswers: z.array(z.string()),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const sentence = await getSentenceById(input.sentenceId);
+      if (!sentence) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const difficulty = input.difficulty as Difficulty;
+      const masks: string[] = (() => {
+        try { return JSON.parse(sentence.masks || "[]"); } catch { return [sentence.answer]; }
+      })();
+      const correctAnswer = masks[input.stepIndex] ?? sentence.answer;
+
+      const contextSentence = buildSentenceForMask(
+        sentence.text, masks, input.stepIndex, input.priorAnswers
+      );
+      const { tokens, source } = await getPredictions(contextSentence, input.bertModel, 5);
+      const combined = Array.from(new Set([...tokens, correctAnswer]));
+
+      const hint = combined[0] ?? correctAnswer;
+      const revealChars = difficulty === "Easy" ? 3 : difficulty === "Medium" ? 2 : 1;
+      const maskedHint = hint.slice(0, revealChars) + "*".repeat(Math.max(0, hint.length - revealChars));
+
+      return {
+        hint: maskedHint,
+        fullHint: hint,
+        pointPenalty: POINTS[difficulty].full - POINTS[difficulty].hint,
+        pointsIfCorrect: POINTS[difficulty].hint,
+        source,
       };
     }),
 

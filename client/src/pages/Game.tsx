@@ -6,6 +6,7 @@ import {
   List, Layers, AlignLeft,
 } from "lucide-react";
 import { toast } from "sonner";
+import ConsecutiveGame from "./ConsecutiveGame";
 
 type Difficulty = "Easy" | "Medium" | "Hard";
 type GameMode = "classic" | "consecutive" | "parallel";
@@ -383,6 +384,7 @@ export default function Game() {
     }
 
     const trimmedAnswer = playerAnswer.trim();
+    // Classic mode only — consecutive is handled entirely by ConsecutiveGame component
     submitAnswer.mutate(
       {
         sessionId,
@@ -391,70 +393,25 @@ export default function Game() {
         hintUsed,
         difficulty,
         bertModel: bertModelKey,
-        maskIndex,
-        // Pass all prior player answers so BERT uses them as context
-        priorAnswers: gameMode === "consecutive" ? priorAnswers : [],
       },
       {
         onSuccess(data) {
-          if (gameMode === "consecutive") {
-            // Record the player's answer for this blank (used as context for next blank)
-            const updatedPriorAnswers = [...priorAnswers, trimmedAnswer];
-            setPriorAnswers(updatedPriorAnswers);
-
-            // Reveal this blank's correct answer inline in the sentence
-            setRevealedAnswers((prev) => {
-              const next = [...prev];
-              next[maskIndex] = data.correctAnswer;
-              return next;
-            });
+          setRoundResult({
+            isCorrect: data.isCorrect,
+            pointsEarned: data.pointsEarned,
+            correctAnswer: data.correctAnswer,
+            predictions: data.predictions,
+          });
+          if (data.isCorrect) {
             setScore((s) => s + data.pointsEarned);
-            if (data.isCorrect) setCorrect((c) => c + 1);
-
-            if (!data.isLastMask) {
-              // More blanks remain in this sentence — stay on same sentence,
-              // advance to the next blank only
-              setMaskIndex((m) => m + 1);
-              setPlayerAnswer("");
-              setHintUsed(false);
-              setHintText(null);
-              toast[data.isCorrect ? "success" : "error"](
-                data.isCorrect
-                  ? `+${data.pointsEarned} pts — Blank ${maskIndex + 1} correct!`
-                  : `Blank ${maskIndex + 1}: the answer was "${data.correctAnswer}"`,
-                { duration: 2500 }
-              );
-              // Remain in "question" phase — do NOT advance sentence here
-            } else {
-              // All blanks in this sentence done — show full sentence feedback
-              setRoundResult({
-                isCorrect: data.isCorrect,
-                pointsEarned: data.pointsEarned,
-                correctAnswer: data.correctAnswer,
-                allAnswers: data.allAnswers,
-                predictions: data.predictions,
-              });
-              setPhase("feedback");
-            }
-          } else {
-            // Classic
-            setRoundResult({
-              isCorrect: data.isCorrect,
-              pointsEarned: data.pointsEarned,
-              correctAnswer: data.correctAnswer,
-              predictions: data.predictions,
-            });
-            if (data.isCorrect) {
-              setScore((s) => s + data.pointsEarned);
-              setCorrect((c) => c + 1);
-            }
-            setPhase("feedback");
+            setCorrect((c) => c + 1);
           }
+          setPhase("feedback");
         },
         onError() { toast.error("Failed to submit answer."); },
       }
     );
-  }, [currentSentence, sessionId, playerAnswer, hintUsed, difficulty, submitAnswer, gameMode, maskIndex]);
+  }, [currentSentence, sessionId, playerAnswer, hintUsed, difficulty, submitAnswer]);
 
   // ── Parallel: submit all answers at once ──────────────────────────────────
   const handleParallelSubmit = useCallback(() => {
@@ -497,14 +454,7 @@ export default function Game() {
     );
   }, [currentSentence, sessionId, parallelAnswers, parallelHintsUsed, difficulty, submitParallel]);
 
-  // ── Re-focus input when maskIndex advances in consecutive mode ────────────────
-  useEffect(() => {
-    if (gameMode === "consecutive" && phase === "question") {
-      setTimeout(() => inputRef.current?.focus(), 80);
-    }
-  }, [maskIndex]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Hint: classic / consecutive ───────────────────────────────────────────
+  // ── Hint: classic mode only (consecutive handled by ConsecutiveGame) ────────
   const handleHint = useCallback(() => {
     if (!currentSentence || hintUsed || hintLoading) return;
     setHintLoading(true);
@@ -513,9 +463,8 @@ export default function Game() {
         sentenceId: currentSentence.id,
         difficulty,
         bertModel: bertModelKey,
-        maskIndex,
-        // Consecutive: give BERT the player's prior answers as context
-        priorAnswers: gameMode === "consecutive" ? priorAnswers : [],
+        maskIndex: 0,
+        priorAnswers: [],
       },
       {
         onSuccess(data) {
@@ -526,7 +475,7 @@ export default function Game() {
         onError() { toast.error("Could not load hint."); setHintLoading(false); },
       }
     );
-  }, [currentSentence, difficulty, getHint, hintUsed, hintLoading, maskIndex, gameMode, priorAnswers]);
+  }, [currentSentence, difficulty, getHint, hintUsed, hintLoading]);
 
   // ── Hint: parallel (per-mask) ─────────────────────────────────────────────
   const handleParallelHint = useCallback((idx: number) => {
@@ -562,6 +511,21 @@ export default function Game() {
 
   const pts = POINTS_MAP[difficulty];
   const modeMeta = MODE_META[gameMode];
+
+  // ── Consecutive mode: hand off to dedicated component ──────────────────────
+  // Once the session is loaded, delegate entirely to ConsecutiveGame which has
+  // its own context-aware step-by-step logic, summary panel, and Game Over screen.
+  if (gameMode === "consecutive" && phase !== "loading" && sessionId !== null) {
+    return (
+      <ConsecutiveGame
+        sessionId={sessionId}
+        sentences={sentences as Parameters<typeof ConsecutiveGame>[0]["sentences"]}
+        difficulty={difficulty}
+        bertModel={bertModel}
+        maxScore={maxScore}
+      />
+    );
+  }
 
   // ── Loading ────────────────────────────────────────────────────────────────
   if (phase === "loading") {

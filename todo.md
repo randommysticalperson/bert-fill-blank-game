@@ -86,3 +86,17 @@
 - [x] Frontend: after each blank, stay on same sentence, update context, move to next blank
 - [x] Frontend: full feedback panel only after last blank — shows all N answers in a summary row
 - [x] Tests: update consecutive tests for context-aware prediction
+
+## Full Rewrite: Consecutive Mode (from scratch)
+- [x] Remove all consecutive-specific state, handlers, and render helpers from Game.tsx
+- [x] Remove consecutive branching from submitAnswer and getHint call sites in Game.tsx
+- [x] Write new ConsecutiveGame.tsx component (self-contained, clean)
+- [x] Backend: dedicated submitConsecutiveAnswer procedure (replaces overloaded submitAnswer)
+- [x] Backend: dedicated getConsecutiveHint procedure
+- [x] ConsecutiveGame UI: sentence with all N blanks visible, active blank pulsing, prior answers shown inline
+- [x] ConsecutiveGame: step-by-step input (one at a time), BERT context chain per step
+- [x] ConsecutiveGame: per-sentence summary panel after last blank
+- [x] ConsecutiveGame: score/progress bar at top
+- [x] Wire ConsecutiveGame into Game.tsx routing
+- [x] Update tests for new consecutive procedures
+- [x] Checkpoint and deliver
