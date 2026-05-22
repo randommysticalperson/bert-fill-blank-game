@@ -298,8 +298,11 @@ export default function Game() {
   }, []);
 
   // ── Reset per-question state when question changes ─────────────────────────
+  // Reset all per-sentence state whenever the sentence index changes.
+  // Importantly, we do NOT include `phase` here so that advancing maskIndex
+  // within a consecutive sentence (which stays in "question" phase) does NOT
+  // trigger a reset.
   useEffect(() => {
-    if (phase !== "question") return;
     setPlayerAnswer("");
     setHintUsed(false);
     setHintText(null);
@@ -311,15 +314,18 @@ export default function Game() {
     setParallelHints(Array(mc).fill(null));
     setParallelHintLoading(Array(mc).fill(false));
     setTimeout(() => inputRef.current?.focus(), 100);
-  }, [phase, currentIndex]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex]);
 
-  // ── Advance to next question or game over ──────────────────────────────────
+  // ── Advance to next sentence or game over ─────────────────────────────────
   const handleNext = useCallback(() => {
     const nextIndex = currentIndex + 1;
     if (nextIndex >= totalQuestions) {
       if (sessionId) finishSession.mutate({ sessionId });
       setPhase("gameover");
     } else {
+      // Advance to the next sentence; the currentIndex useEffect resets all
+      // per-sentence state (maskIndex, revealedAnswers, inputs, hints).
       setCurrentIndex(nextIndex);
       setRoundResult(null);
       setPhase("question");
@@ -347,7 +353,7 @@ export default function Game() {
       {
         onSuccess(data) {
           if (gameMode === "consecutive") {
-            // Reveal this mask's answer
+            // Reveal this blank's correct answer inline in the sentence
             setRevealedAnswers((prev) => {
               const next = [...prev];
               next[maskIndex] = data.correctAnswer;
@@ -357,20 +363,21 @@ export default function Game() {
             if (data.isCorrect) setCorrect((c) => c + 1);
 
             if (!data.isLastMask) {
-              // Advance to next mask in the same sentence
+              // More blanks remain in this sentence — stay on same sentence,
+              // advance to the next blank only
               setMaskIndex((m) => m + 1);
               setPlayerAnswer("");
               setHintUsed(false);
               setHintText(null);
-              // Show brief per-mask feedback inline (no full feedback phase)
               toast[data.isCorrect ? "success" : "error"](
                 data.isCorrect
                   ? `+${data.pointsEarned} pts — Blank ${maskIndex + 1} correct!`
-                  : `Blank ${maskIndex + 1}: the answer was "${data.correctAnswer}"`,
-                { duration: 2000 }
+                  : `Blank ${maskIndex + 1}: the answer was “${data.correctAnswer}”`,
+                { duration: 2500 }
               );
+              // Remain in "question" phase — do NOT advance sentence here
             } else {
-              // All masks done — show full feedback
+              // All blanks in this sentence done — show full sentence feedback
               setRoundResult({
                 isCorrect: data.isCorrect,
                 pointsEarned: data.pointsEarned,
@@ -440,6 +447,13 @@ export default function Game() {
       }
     );
   }, [currentSentence, sessionId, parallelAnswers, parallelHintsUsed, difficulty, submitParallel]);
+
+  // ── Re-focus input when maskIndex advances in consecutive mode ────────────────
+  useEffect(() => {
+    if (gameMode === "consecutive" && phase === "question") {
+      setTimeout(() => inputRef.current?.focus(), 80);
+    }
+  }, [maskIndex]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Hint: classic / consecutive ───────────────────────────────────────────
   const handleHint = useCallback(() => {

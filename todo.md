@@ -63,3 +63,11 @@
 - [x] Partial scoring for parallel mode (points per correct blank)
 - [x] Progress indicator per mask in consecutive mode (e.g. "Blank 2 of 3")
 - [x] Vitest tests for multi-mask scoring and answer evaluation
+
+## Fix: Consecutive mode — fill multiple blanks within the same sentence
+- [x] Backend: track currentMaskIndex per sentence in session state; only advance sentence when all masks answered
+- [x] Backend: submitAnswer returns nextMaskIndex + whether sentence is complete
+- [x] Frontend: stay on same sentence after each mask answer; show revealed answers inline in sentence
+- [x] Frontend: progress bar shows "Blank X of Y" within the current sentence
+- [x] Frontend: only move to next sentence when all masks in current sentence are done
+- [x] Tests: update consecutive scoring tests to reflect within-sentence progression
