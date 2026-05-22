@@ -220,3 +220,217 @@ describe("BERT category keys", () => {
     expect(VALID_CATEGORIES).toContain("general");
   });
 });
+
+// ── Multi-mask mode helpers ────────────────────────────────────────────────────
+
+/**
+ * Count the number of [MASK] tokens in a sentence.
+ */
+function countMasks(text: string): number {
+  return (text.match(/\[MASK\]/g) ?? []).length;
+}
+
+/**
+ * Simulate consecutive mode scoring: each mask is scored independently.
+ * Returns total points earned across all masks.
+ */
+function scoreConsecutive(
+  playerAnswers: string[],
+  correctAnswers: string[],
+  hintsUsed: boolean[],
+  difficulty: "Easy" | "Medium" | "Hard"
+): { totalPoints: number; totalCorrect: number } {
+  let totalPoints = 0;
+  let totalCorrect = 0;
+  for (let i = 0; i < correctAnswers.length; i++) {
+    const correct = normalise(playerAnswers[i] ?? "") === normalise(correctAnswers[i] ?? "");
+    if (correct) {
+      totalPoints += hintsUsed[i] ? POINTS[difficulty].hint : POINTS[difficulty].full;
+      totalCorrect++;
+    }
+  }
+  return { totalPoints, totalCorrect };
+}
+
+/**
+ * Simulate parallel mode scoring: all masks scored at once.
+ */
+function scoreParallel(
+  playerAnswers: string[],
+  correctAnswers: string[],
+  hintsUsed: boolean[],
+  difficulty: "Easy" | "Medium" | "Hard"
+): { results: { isCorrect: boolean; points: number }[]; totalPoints: number; totalCorrect: number } {
+  const results = correctAnswers.map((correct, i) => {
+    const isCorrect = normalise(playerAnswers[i] ?? "") === normalise(correct);
+    const points = isCorrect ? (hintsUsed[i] ? POINTS[difficulty].hint : POINTS[difficulty].full) : 0;
+    return { isCorrect, points };
+  });
+  return {
+    results,
+    totalPoints: results.reduce((s, r) => s + r.points, 0),
+    totalCorrect: results.filter((r) => r.isCorrect).length,
+  };
+}
+
+// ── Multi-mask tests ───────────────────────────────────────────────────────────
+
+describe("countMasks()", () => {
+  it("counts zero masks in a plain sentence", () => {
+    expect(countMasks("The sky is blue.")).toBe(0);
+  });
+
+  it("counts one mask", () => {
+    expect(countMasks("The [MASK] is blue.")).toBe(1);
+  });
+
+  it("counts two masks", () => {
+    expect(countMasks("The [MASK] and [MASK] are related.")).toBe(2);
+  });
+
+  it("counts three masks", () => {
+    expect(countMasks("[MASK] causes [MASK] which leads to [MASK].")).toBe(3);
+  });
+});
+
+describe("consecutive mode scoring", () => {
+  it("awards full points for all correct answers without hints", () => {
+    const { totalPoints, totalCorrect } = scoreConsecutive(
+      ["heart", "blood"],
+      ["heart", "blood"],
+      [false, false],
+      "Easy"
+    );
+    expect(totalPoints).toBe(20); // 10 + 10
+    expect(totalCorrect).toBe(2);
+  });
+
+  it("awards half points when hint used on one mask", () => {
+    const { totalPoints, totalCorrect } = scoreConsecutive(
+      ["heart", "blood"],
+      ["heart", "blood"],
+      [true, false],
+      "Easy"
+    );
+    expect(totalPoints).toBe(15); // 5 + 10
+    expect(totalCorrect).toBe(2);
+  });
+
+  it("awards zero for incorrect mask, full for correct", () => {
+    const { totalPoints, totalCorrect } = scoreConsecutive(
+      ["lung", "blood"],
+      ["heart", "blood"],
+      [false, false],
+      "Medium"
+    );
+    expect(totalPoints).toBe(20); // 0 + 20
+    expect(totalCorrect).toBe(1);
+  });
+
+  it("awards zero for all incorrect", () => {
+    const { totalPoints, totalCorrect } = scoreConsecutive(
+      ["lung", "plasma"],
+      ["heart", "blood"],
+      [false, false],
+      "Hard"
+    );
+    expect(totalPoints).toBe(0);
+    expect(totalCorrect).toBe(0);
+  });
+
+  it("is case-insensitive for consecutive answers", () => {
+    const { totalCorrect } = scoreConsecutive(
+      ["HEART", "Blood"],
+      ["heart", "blood"],
+      [false, false],
+      "Easy"
+    );
+    expect(totalCorrect).toBe(2);
+  });
+});
+
+describe("parallel mode scoring", () => {
+  it("scores all blanks independently and sums points", () => {
+    const { totalPoints, totalCorrect, results } = scoreParallel(
+      ["insulin", "glucose"],
+      ["insulin", "glucose"],
+      [false, false],
+      "Medium"
+    );
+    expect(totalPoints).toBe(40); // 20 + 20
+    expect(totalCorrect).toBe(2);
+    expect(results[0].isCorrect).toBe(true);
+    expect(results[1].isCorrect).toBe(true);
+  });
+
+  it("partial credit: only correct blanks earn points", () => {
+    const { totalPoints, totalCorrect } = scoreParallel(
+      ["insulin", "wrong"],
+      ["insulin", "glucose"],
+      [false, false],
+      "Hard"
+    );
+    expect(totalPoints).toBe(30); // 30 + 0
+    expect(totalCorrect).toBe(1);
+  });
+
+  it("hint on one blank reduces that blank's points only", () => {
+    const { totalPoints } = scoreParallel(
+      ["insulin", "glucose"],
+      ["insulin", "glucose"],
+      [true, false],  // hint on blank 0
+      "Hard"
+    );
+    expect(totalPoints).toBe(45); // 15 + 30
+  });
+
+  it("all incorrect returns zero total", () => {
+    const { totalPoints, totalCorrect } = scoreParallel(
+      ["wrong1", "wrong2"],
+      ["insulin", "glucose"],
+      [false, false],
+      "Easy"
+    );
+    expect(totalPoints).toBe(0);
+    expect(totalCorrect).toBe(0);
+  });
+
+  it("handles single-mask sentence (degenerate parallel)", () => {
+    const { totalPoints, totalCorrect } = scoreParallel(
+      ["heart"],
+      ["heart"],
+      [false],
+      "Easy"
+    );
+    expect(totalPoints).toBe(10);
+    expect(totalCorrect).toBe(1);
+  });
+
+  it("returns per-blank result objects with correct shape", () => {
+    const { results } = scoreParallel(
+      ["insulin", "glucose"],
+      ["insulin", "wrong"],
+      [false, false],
+      "Medium"
+    );
+    expect(results).toHaveLength(2);
+    expect(results[0]).toHaveProperty("isCorrect");
+    expect(results[0]).toHaveProperty("points");
+    expect(results[0].isCorrect).toBe(true);
+    expect(results[1].isCorrect).toBe(false);
+  });
+});
+
+describe("game mode labels", () => {
+  const VALID_MODES = ["classic", "consecutive", "parallel"] as const;
+
+  it("has exactly 3 game modes", () => {
+    expect(VALID_MODES).toHaveLength(3);
+  });
+
+  it("includes classic, consecutive, and parallel", () => {
+    expect(VALID_MODES).toContain("classic");
+    expect(VALID_MODES).toContain("consecutive");
+    expect(VALID_MODES).toContain("parallel");
+  });
+});

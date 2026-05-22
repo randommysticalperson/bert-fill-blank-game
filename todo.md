@@ -47,3 +47,19 @@
 - [x] Update getSentencesByDifficulty to filter by bertCategory
 - [x] Update startSession to pass bertModel as category filter
 - [x] Update tests to cover category filtering
+
+## New Feature: Multi-Mask Game Modes
+- [x] Add gameMode column to sentences table (single / consecutive / parallel)
+- [x] Add masks JSON column to sentences for multi-mask answers
+- [x] Run migration and apply SQL
+- [x] Seed multi-mask sentences (consecutive + parallel) for all 6 BERT categories × 3 difficulties
+- [x] Backend: getPredictionsForMask procedure (single mask from multi-mask sentence)
+- [x] Backend: submitConsecutiveAnswer procedure (one mask at a time, tracks position)
+- [x] Backend: submitParallelAnswers procedure (all masks submitted together)
+- [x] Backend: getSessionState returns gameMode so frontend knows which UI to show
+- [x] Home screen: add Game Mode selector (Classic / Consecutive / Parallel) with descriptions
+- [x] ConsecutiveMask game page: show sentence with current blank highlighted, fill one at a time
+- [x] ParallelMask game page: show sentence with all blanks, independent input per blank
+- [x] Partial scoring for parallel mode (points per correct blank)
+- [x] Progress indicator per mask in consecutive mode (e.g. "Blank 2 of 3")
+- [x] Vitest tests for multi-mask scoring and answer evaluation

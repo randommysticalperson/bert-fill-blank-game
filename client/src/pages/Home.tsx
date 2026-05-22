@@ -1,10 +1,49 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Sparkles, BookOpen, Zap, Trophy, FlaskConical, Scale, TrendingUp, Stethoscope, Cpu, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { Sparkles, BookOpen, Zap, Trophy, FlaskConical, Scale, TrendingUp, Stethoscope, Cpu, CheckCircle2, XCircle, Loader2, List, Layers, AlignLeft } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
 type Difficulty = "Easy" | "Medium" | "Hard";
 type BertModel = "general" | "medical" | "clinical" | "science" | "finance" | "legal";
+type GameMode = "classic" | "consecutive" | "parallel";
+
+const GAME_MODES: {
+  key: GameMode;
+  label: string;
+  description: string;
+  icon: React.ReactNode;
+  badge: string;
+  color: string;
+  border: string;
+}[] = [
+  {
+    key: "classic",
+    label: "Classic",
+    description: "One blank per sentence. The original fill-in-the-blank experience.",
+    icon: <AlignLeft className="w-5 h-5" />,
+    badge: "1 blank",
+    color: "text-sky-400",
+    border: "hover:border-sky-400/60",
+  },
+  {
+    key: "consecutive",
+    label: "Consecutive",
+    description: "Multiple blanks revealed one at a time in order. Each answer unlocks the next.",
+    icon: <List className="w-5 h-5" />,
+    badge: "2+ blanks in order",
+    color: "text-violet-400",
+    border: "hover:border-violet-400/60",
+  },
+  {
+    key: "parallel",
+    label: "Parallel",
+    description: "All blanks shown at once. Fill every gap independently before submitting.",
+    icon: <Layers className="w-5 h-5" />,
+    badge: "2+ blanks at once",
+    color: "text-fuchsia-400",
+    border: "hover:border-fuchsia-400/60",
+  },
+];
 
 const DIFFICULTIES: {
   key: Difficulty;
@@ -115,6 +154,7 @@ function SidecarBadge({ available, exportedModels }: { available: boolean; expor
 export default function Home() {
   const [selected, setSelected] = useState<Difficulty | null>(null);
   const [bertModel, setBertModel] = useState<BertModel>("general");
+  const [gameMode, setGameMode] = useState<GameMode>("classic");
   const [, navigate] = useLocation();
 
   const { data: sidecarStatus, isLoading: sidecarLoading } = trpc.game.sidecarStatus.useQuery(undefined, {
@@ -130,7 +170,7 @@ export default function Home() {
 
   function handleStart() {
     if (!selected) return;
-    navigate(`/game?difficulty=${selected}&bert=${bertModel}`);
+    navigate(`/game?difficulty=${selected}&bert=${bertModel}&mode=${gameMode}`);
   }
 
   return (
@@ -233,6 +273,47 @@ export default function Home() {
         )}
       </div>
 
+      {/* Game mode selector */}
+      <div className="w-full max-w-2xl mb-8 animate-fade-in-up" style={{ animationDelay: "160ms" }}>
+        <div className="text-xs font-medium uppercase tracking-widest text-[var(--color-muted-foreground)] mb-3">
+          Game Mode
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {GAME_MODES.map((m, i) => {
+            const isActive = gameMode === m.key;
+            return (
+              <button
+                key={m.key}
+                onClick={() => setGameMode(m.key)}
+                className={[
+                  "group relative flex flex-col gap-2 p-4 rounded-xl border text-left transition-all duration-200 btn-press",
+                  "bg-[var(--color-card)]",
+                  isActive
+                    ? `border-current ring-1 ring-current ${m.color}`
+                    : `border-[var(--color-border)] ${m.border} text-[var(--color-foreground)]`,
+                  "animate-fade-in-up",
+                ].join(" ")}
+                style={{ animationDelay: `${160 + i * 60}ms` }}
+              >
+                {isActive && (
+                  <div className="absolute inset-0 rounded-xl opacity-5 bg-current pointer-events-none" />
+                )}
+                <div className="flex items-center justify-between">
+                  <span className={isActive ? m.color : "text-[var(--color-muted-foreground)]"}>{m.icon}</span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${
+                    isActive
+                      ? `${m.color} border-current bg-current/10`
+                      : "text-[var(--color-muted-foreground)] border-[var(--color-border)]"
+                  }`}>{m.badge}</span>
+                </div>
+                <div className="font-semibold text-sm">{m.label}</div>
+                <div className="text-[11px] text-[var(--color-muted-foreground)] leading-snug">{m.description}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Difficulty cards */}
       <div className="w-full max-w-2xl grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
         {DIFFICULTIES.map((d, i) => (
@@ -291,7 +372,10 @@ export default function Home() {
       >
         <p>
           10 questions per round · Use a{" "}
-          <span className="text-hint font-medium">Hint</span> for half points · Score as high as you can
+          <span className="text-hint font-medium">Hint</span> for half points ·{" "}
+          {gameMode === "consecutive" && "Fill blanks one at a time in order"}
+          {gameMode === "parallel" && "Fill all blanks at once"}
+          {gameMode === "classic" && "Score as high as you can"}
         </p>
       </div>
     </div>

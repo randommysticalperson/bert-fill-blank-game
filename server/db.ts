@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   gameSessions,
@@ -7,6 +7,7 @@ import {
   sessionAnswers,
   users,
   type Difficulty,
+  type GameMode,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -64,28 +65,32 @@ export async function getUserByOpenId(openId: string) {
 export async function getSentencesByDifficulty(
   difficulty: Difficulty,
   limit = 10,
-  bertCategory?: string
+  bertCategory?: string,
+  gameMode: GameMode = "classic"
 ) {
   const db = await getDb();
   if (!db) return [];
 
-  const conditions = [eq(sentences.difficulty, difficulty)];
+  const baseConditions = [
+    eq(sentences.difficulty, difficulty),
+    eq(sentences.gameMode, gameMode),
+  ];
+
   if (bertCategory && bertCategory !== "general") {
-    // Filter to the chosen BERT model's category; fall back to general if none found
     const categoryRows = await db
       .select()
       .from(sentences)
-      .where(and(eq(sentences.difficulty, difficulty), eq(sentences.bertCategory, bertCategory as any)))
+      .where(and(...baseConditions, eq(sentences.bertCategory, bertCategory as any)))
       .orderBy(sql`RAND()`)
       .limit(limit);
     if (categoryRows.length > 0) return categoryRows;
-    // Fallback: return general sentences if the requested category has none
+    // Fallback to any bertCategory for this difficulty + gameMode
   }
 
   return db
     .select()
     .from(sentences)
-    .where(and(...conditions))
+    .where(and(...baseConditions))
     .orderBy(sql`RAND()`)
     .limit(limit);
 }
@@ -99,11 +104,16 @@ export async function getSentenceById(id: number) {
 
 // ── Game sessions ────────────────────────────────────────────────────────────
 
-export async function createGameSession(difficulty: Difficulty, userId?: number) {
+export async function createGameSession(
+  difficulty: Difficulty,
+  gameMode: GameMode = "classic",
+  userId?: number
+) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
   const [result] = await db.insert(gameSessions).values({
     difficulty,
+    gameMode,
     userId: userId ?? null,
     totalQuestions: 0,
     correctAnswers: 0,
@@ -144,10 +154,19 @@ export async function saveSessionAnswer(data: {
   isCorrect: boolean;
   hintUsed: boolean;
   pointsEarned: number;
+  maskIndex?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  await db.insert(sessionAnswers).values(data);
+  await db.insert(sessionAnswers).values({
+    sessionId: data.sessionId,
+    sentenceId: data.sentenceId,
+    playerAnswer: data.playerAnswer,
+    isCorrect: data.isCorrect,
+    hintUsed: data.hintUsed,
+    pointsEarned: data.pointsEarned,
+    maskIndex: data.maskIndex ?? 0,
+  });
 }
 
 export async function getAnsweredSentenceIds(sessionId: number): Promise<number[]> {

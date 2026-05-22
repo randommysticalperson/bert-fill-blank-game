@@ -10,7 +10,7 @@ import {
   saveSessionAnswer,
   updateGameSession,
 } from "../db";
-import type { Difficulty } from "../../drizzle/schema";
+import type { Difficulty, GameMode } from "../../drizzle/schema";
 
 // ── Scoring constants ────────────────────────────────────────────────────────
 const POINTS: Record<Difficulty, { full: number; hint: number }> = {
@@ -21,7 +21,7 @@ const POINTS: Record<Difficulty, { full: number; hint: number }> = {
 
 const QUESTIONS_PER_GAME = 10;
 
-/** Port the Python sidecar listens on. Override with env BERT_SIDECAR_PORT. */
+/** Port the Python sidecar listens on. Override with env BERT_SIDECAR_URL. */
 const SIDECAR_URL = process.env.BERT_SIDECAR_URL ?? "http://127.0.0.1:8787";
 
 // ── Sidecar health check (cached for 30 s) ───────────────────────────────────
@@ -66,20 +66,19 @@ async function sidecarPredict(
 
 // ── LLM fill-mask fallback ───────────────────────────────────────────────────
 async function llmPredict(sentence: string, topN: number): Promise<string[]> {
-  const prompt = sentence.replace("[MASK]", "___");
+  const prompt = sentence.replace(/\[MASK\]/g, "___");
   const response = await invokeLLM({
     messages: [
       {
         role: "system",
         content: `You are a fill-in-the-blank word prediction engine.
-Given a sentence with a blank (shown as ___), return the top ${topN} most appropriate single words or short phrases that best fill the blank.
-Respond ONLY with a JSON array of strings, ordered from most to least likely.
-Example: ["word1","word2","word3","word4","word5"]
-Do not include any explanation or extra text.`,
+Given a sentence with one blank (shown as ___), return the top ${topN} most appropriate single words or short phrases that best fill that blank.
+Respond ONLY with a JSON object: {"predictions": ["word1","word2",...]}
+Order from most to least likely. Do not include any explanation.`,
       },
       {
         role: "user",
-        content: `Sentence: "${prompt}"\n\nReturn the top ${topN} predictions as a JSON array.`,
+        content: `Sentence: "${prompt}"\n\nReturn the top ${topN} predictions as a JSON object.`,
       },
     ],
     response_format: {
@@ -110,7 +109,7 @@ Do not include any explanation or extra text.`,
   }
 }
 
-// ── Unified prediction router: sidecar → LLM fallback ───────────────────────
+// ── Unified prediction: sidecar → LLM fallback ──────────────────────────────
 async function getPredictions(
   sentence: string,
   bertModel: string,
@@ -122,11 +121,29 @@ async function getPredictions(
       if (tokens.length > 0) return { tokens, source: "sidecar" };
     } catch (err) {
       console.warn("[game] Sidecar predict failed, falling back to LLM:", err);
-      _sidecarAvailable = false; // force re-check next call
+      _sidecarAvailable = false;
     }
   }
   const tokens = await llmPredict(sentence, topN);
   return { tokens, source: "llm" };
+}
+
+/**
+ * Build a version of the sentence with all [MASK] tokens replaced except the
+ * one at `activeIndex`, which is left as [MASK] for the sidecar/LLM to predict.
+ * Tokens already answered are filled in with their correct answer.
+ */
+function buildSentenceForMask(
+  text: string,
+  masks: string[],
+  activeIndex: number
+): string {
+  let idx = 0;
+  return text.replace(/\[MASK\]/g, () => {
+    const current = idx++;
+    if (current === activeIndex) return "[MASK]";
+    return masks[current] ?? "[MASK]";
+  });
 }
 
 // ── Normalise for comparison ─────────────────────────────────────────────────
@@ -139,9 +156,11 @@ function isMatch(playerAnswer: string, candidates: string[]): boolean {
   return candidates.some((c) => normalise(c) === p);
 }
 
-// ── BERT model keys (must match Python MODEL_META keys) ──────────────────────
+// ── BERT model keys ──────────────────────────────────────────────────────────
 const BERT_MODEL_KEYS = ["general", "medical", "clinical", "science", "finance", "legal"] as const;
 type BertModelKey = (typeof BERT_MODEL_KEYS)[number];
+
+const GAME_MODE_KEYS = ["classic", "consecutive", "parallel"] as const;
 
 // ── Router ───────────────────────────────────────────────────────────────────
 export const gameRouter = router({
@@ -149,11 +168,8 @@ export const gameRouter = router({
   sidecarStatus: publicProcedure.query(async () => {
     const available = await isSidecarAvailable();
     if (!available) return { available: false, models: [] };
-
     try {
-      const res = await fetch(`${SIDECAR_URL}/models`, {
-        signal: AbortSignal.timeout(2_000),
-      });
+      const res = await fetch(`${SIDECAR_URL}/models`, { signal: AbortSignal.timeout(2_000) });
       const models = res.ok ? await res.json() : [];
       return { available: true, models };
     } catch {
@@ -167,16 +183,29 @@ export const gameRouter = router({
       z.object({
         difficulty: z.enum(["Easy", "Medium", "Hard"]),
         bertModel: z.enum(BERT_MODEL_KEYS).optional().default("general"),
+        gameMode: z.enum(GAME_MODE_KEYS).optional().default("classic"),
       })
     )
     .mutation(async ({ input }) => {
       const difficulty = input.difficulty as Difficulty;
-      const allSentences = await getSentencesByDifficulty(difficulty, QUESTIONS_PER_GAME, input.bertModel);
+      const gameMode = input.gameMode as GameMode;
+      const allSentences = await getSentencesByDifficulty(
+        difficulty,
+        QUESTIONS_PER_GAME,
+        input.bertModel,
+        gameMode
+      );
       if (allSentences.length === 0)
-        throw new TRPCError({ code: "NOT_FOUND", message: "No sentences found for this difficulty." });
+        throw new TRPCError({ code: "NOT_FOUND", message: "No sentences found for this difficulty and mode." });
 
-      const sessionId = await createGameSession(difficulty);
-      const maxScore = allSentences.length * POINTS[difficulty].full;
+      const sessionId = await createGameSession(difficulty, gameMode);
+
+      // For multi-mask modes, max score accounts for all masks per sentence
+      const maxScore = allSentences.reduce((acc, s) => {
+        const maskCount = (s.text.match(/\[MASK\]/g) ?? []).length;
+        return acc + POINTS[difficulty].full * Math.max(1, maskCount);
+      }, 0);
+
       await updateGameSession(sessionId, { totalQuestions: allSentences.length, maxScore });
 
       return {
@@ -184,22 +213,32 @@ export const gameRouter = router({
         totalQuestions: allSentences.length,
         maxScore,
         bertModel: input.bertModel,
-        sentences: allSentences.map((s) => ({
-          id: s.id,
-          text: s.text,
-          difficulty: s.difficulty,
-          domain: s.domain,
-        })),
+        gameMode,
+        sentences: allSentences.map((s) => {
+          const masksArr: string[] = (() => {
+            try { return JSON.parse(s.masks || "[]"); } catch { return [s.answer]; }
+          })();
+          return {
+            id: s.id,
+            text: s.text,
+            difficulty: s.difficulty,
+            domain: s.domain,
+            gameMode: s.gameMode,
+            maskCount: masksArr.length,
+          };
+        }),
       };
     }),
 
-  /** Get hint for a sentence */
+  /** Get hint for a specific mask in a sentence */
   getHint: publicProcedure
     .input(
       z.object({
         sentenceId: z.number(),
         difficulty: z.enum(["Easy", "Medium", "Hard"]),
         bertModel: z.enum(BERT_MODEL_KEYS).optional().default("general"),
+        /** Which [MASK] index to hint (0-based). Default 0 for classic mode. */
+        maskIndex: z.number().int().min(0).optional().default(0),
       })
     )
     .mutation(async ({ input }) => {
@@ -207,13 +246,19 @@ export const gameRouter = router({
       if (!sentence) throw new TRPCError({ code: "NOT_FOUND" });
 
       const difficulty = input.difficulty as Difficulty;
-      const { tokens, source } = await getPredictions(sentence.text, input.bertModel, 5);
-      const combined = Array.from(new Set([...tokens, sentence.answer]));
+      const masks: string[] = (() => {
+        try { return JSON.parse(sentence.masks || "[]"); } catch { return [sentence.answer]; }
+      })();
+      const correctAnswer = masks[input.maskIndex] ?? sentence.answer;
 
-      const hint = combined[0] ?? sentence.answer;
+      // Build a sentence with only the target [MASK] active
+      const targetSentence = buildSentenceForMask(sentence.text, masks, input.maskIndex);
+      const { tokens, source } = await getPredictions(targetSentence, input.bertModel, 5);
+      const combined = Array.from(new Set([...tokens, correctAnswer]));
+
+      const hint = combined[0] ?? correctAnswer;
       const revealChars = difficulty === "Easy" ? 3 : difficulty === "Medium" ? 2 : 1;
-      const maskedHint =
-        hint.slice(0, revealChars) + "*".repeat(Math.max(0, hint.length - revealChars));
+      const maskedHint = hint.slice(0, revealChars) + "*".repeat(Math.max(0, hint.length - revealChars));
 
       return {
         hint: maskedHint,
@@ -224,7 +269,7 @@ export const gameRouter = router({
       };
     }),
 
-  /** Submit an answer */
+  /** Submit an answer for classic or consecutive mode (one mask at a time) */
   submitAnswer: publicProcedure
     .input(
       z.object({
@@ -234,6 +279,8 @@ export const gameRouter = router({
         hintUsed: z.boolean(),
         difficulty: z.enum(["Easy", "Medium", "Hard"]),
         bertModel: z.enum(BERT_MODEL_KEYS).optional().default("general"),
+        /** Which [MASK] index is being answered (0-based). Default 0 for classic. */
+        maskIndex: z.number().int().min(0).optional().default(0),
       })
     )
     .mutation(async ({ input }) => {
@@ -244,8 +291,15 @@ export const gameRouter = router({
       if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "Session not found." });
 
       const difficulty = input.difficulty as Difficulty;
-      const { tokens, source } = await getPredictions(sentence.text, input.bertModel, 5);
-      const combined = Array.from(new Set([...tokens, sentence.answer]));
+      const masks: string[] = (() => {
+        try { return JSON.parse(sentence.masks || "[]"); } catch { return [sentence.answer]; }
+      })();
+      const correctAnswer = masks[input.maskIndex] ?? sentence.answer;
+
+      // Build sentence with only the target mask active for prediction
+      const targetSentence = buildSentenceForMask(sentence.text, masks, input.maskIndex);
+      const { tokens, source } = await getPredictions(targetSentence, input.bertModel, 5);
+      const combined = Array.from(new Set([...tokens, correctAnswer]));
 
       const isCorrect = isMatch(input.playerAnswer, combined);
       const basePoints = POINTS[difficulty].full;
@@ -259,8 +313,11 @@ export const gameRouter = router({
         isCorrect,
         hintUsed: input.hintUsed,
         pointsEarned,
+        maskIndex: input.maskIndex,
       });
 
+      // Only update session score when the last mask of a sentence is answered
+      // (for consecutive mode the caller decides when to advance)
       await updateGameSession(input.sessionId, {
         correctAnswers: session.correctAnswers + (isCorrect ? 1 : 0),
         totalScore: session.totalScore + pointsEarned,
@@ -269,9 +326,95 @@ export const gameRouter = router({
       return {
         isCorrect,
         pointsEarned,
-        correctAnswer: sentence.answer,
+        correctAnswer,
+        allAnswers: masks,
         predictions: combined,
         source,
+        totalMasks: masks.length,
+        isLastMask: input.maskIndex >= masks.length - 1,
+      };
+    }),
+
+  /**
+   * Submit all answers for a parallel-mode sentence at once.
+   * Each answer in `playerAnswers` corresponds to the [MASK] at the same index.
+   */
+  submitParallelAnswers: publicProcedure
+    .input(
+      z.object({
+        sessionId: z.number(),
+        sentenceId: z.number(),
+        playerAnswers: z.array(z.string()),
+        hintsUsed: z.array(z.boolean()),
+        difficulty: z.enum(["Easy", "Medium", "Hard"]),
+        bertModel: z.enum(BERT_MODEL_KEYS).optional().default("general"),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const sentence = await getSentenceById(input.sentenceId);
+      if (!sentence) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const session = await getGameSession(input.sessionId);
+      if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "Session not found." });
+
+      const difficulty = input.difficulty as Difficulty;
+      const masks: string[] = (() => {
+        try { return JSON.parse(sentence.masks || "[]"); } catch { return [sentence.answer]; }
+      })();
+
+      const results: {
+        maskIndex: number;
+        playerAnswer: string;
+        correctAnswer: string;
+        isCorrect: boolean;
+        pointsEarned: number;
+        predictions: string[];
+      }[] = [];
+
+      let totalPointsEarned = 0;
+      let totalCorrect = 0;
+
+      for (let i = 0; i < masks.length; i++) {
+        const correctAnswer = masks[i];
+        const playerAnswer = input.playerAnswers[i] ?? "";
+        const hintUsed = input.hintsUsed[i] ?? false;
+
+        // Build a sentence with only this mask active
+        const targetSentence = buildSentenceForMask(sentence.text, masks, i);
+        const { tokens } = await getPredictions(targetSentence, input.bertModel, 5);
+        const combined = Array.from(new Set([...tokens, correctAnswer]));
+
+        const isCorrect = isMatch(playerAnswer, combined);
+        const pointsEarned = isCorrect
+          ? (hintUsed ? POINTS[difficulty].hint : POINTS[difficulty].full)
+          : 0;
+
+        await saveSessionAnswer({
+          sessionId: input.sessionId,
+          sentenceId: input.sentenceId,
+          playerAnswer,
+          isCorrect,
+          hintUsed,
+          pointsEarned,
+          maskIndex: i,
+        });
+
+        results.push({ maskIndex: i, playerAnswer, correctAnswer, isCorrect, pointsEarned, predictions: combined });
+        totalPointsEarned += pointsEarned;
+        if (isCorrect) totalCorrect++;
+      }
+
+      await updateGameSession(input.sessionId, {
+        correctAnswers: session.correctAnswers + totalCorrect,
+        totalScore: session.totalScore + totalPointsEarned,
+      });
+
+      return {
+        results,
+        totalPointsEarned,
+        totalCorrect,
+        totalMasks: masks.length,
+        allAnswers: masks,
       };
     }),
 
@@ -288,6 +431,7 @@ export const gameRouter = router({
         correctAnswers: session.correctAnswers,
         totalQuestions: session.totalQuestions,
         difficulty: session.difficulty,
+        gameMode: session.gameMode,
       };
     }),
 });
