@@ -18,6 +18,8 @@ interface SentenceItem {
   domain: string | null;
   gameMode?: string;
   maskCount?: number;
+  /** Word count per [MASK] token — drives the _ _ _ placeholder rendering */
+  maskWordCounts?: number[];
 }
 
 interface RoundResult {
@@ -53,6 +55,24 @@ const MODE_META: Record<GameMode, { label: string; icon: React.ReactNode; color:
 // ── Render helpers ────────────────────────────────────────────────────────────
 
 /**
+ * Renders a blank placeholder with one underscore segment per word required.
+ * Single-word answer → _   Two-word → _ _   Three-word → _ _ _  etc.
+ */
+function BlankPlaceholder({ wordCount = 1, dim = false }: { wordCount?: number; dim?: boolean }) {
+  const count = Math.max(1, wordCount);
+  return (
+    <span
+      className={["inline-flex items-center gap-[4px] mx-1 align-middle", dim ? "opacity-25" : ""].join(" ")}
+      aria-label={`blank, ${count} word${count > 1 ? "s" : ""}`}
+    >
+      {Array.from({ length: count }).map((_, i) => (
+        <span key={i} className="inline-block h-[2px] w-[18px] rounded-full bg-[var(--color-primary)] align-middle" />
+      ))}
+    </span>
+  );
+}
+
+/**
  * Render a sentence with all [MASK] tokens replaced by styled blanks.
  * In consecutive mode, only the active mask is shown as blank; earlier ones
  * show their correct answer, later ones show a dimmed placeholder.
@@ -60,7 +80,8 @@ const MODE_META: Record<GameMode, { label: string; icon: React.ReactNode; color:
 function renderSentenceConsecutive(
   text: string,
   activeMaskIndex: number,
-  revealedAnswers: (string | null)[]
+  revealedAnswers: (string | null)[],
+  maskWordCounts?: number[]
 ) {
   const parts = text.split("[MASK]");
   return (
@@ -70,6 +91,7 @@ function renderSentenceConsecutive(
         const answer = revealedAnswers[i];
         const isActive = i === activeMaskIndex;
         const isPast = i < activeMaskIndex;
+        const wc = maskWordCounts?.[i] ?? 1;
         return (
           <span key={i}>
             {part}
@@ -78,9 +100,9 @@ function renderSentenceConsecutive(
                 {answer}
               </span>
             ) : isActive ? (
-              <span className="blank-line" aria-label="blank" />
+              <BlankPlaceholder wordCount={wc} />
             ) : (
-              <span className="inline-block w-16 h-[1.5px] mx-1 bg-[var(--color-border)] opacity-40 align-middle" />
+              <BlankPlaceholder wordCount={wc} dim />
             )}
           </span>
         );
@@ -92,7 +114,7 @@ function renderSentenceConsecutive(
 /**
  * Render a sentence for parallel mode: all [MASK] tokens shown as numbered blanks.
  */
-function renderSentenceParallel(text: string, maskCount: number) {
+function renderSentenceParallel(text: string, maskWordCounts?: number[]) {
   let idx = 0;
   const parts = text.split("[MASK]");
   return (
@@ -100,11 +122,12 @@ function renderSentenceParallel(text: string, maskCount: number) {
       {parts.map((part, i) => {
         if (i === parts.length - 1) return <span key={i}>{part}</span>;
         const n = idx++;
+        const wc = maskWordCounts?.[n] ?? 1;
         return (
           <span key={i}>
             {part}
-            <span className="inline-flex items-center gap-0.5 mx-0.5">
-              <span className="blank-line" aria-label={`blank ${n + 1}`} />
+            <span className="inline-flex items-center gap-0.5">
+              <BlankPlaceholder wordCount={wc} />
               <sup className="text-[9px] text-[var(--color-primary)] font-bold leading-none -ml-1">{n + 1}</sup>
             </span>
           </span>
@@ -114,12 +137,12 @@ function renderSentenceParallel(text: string, maskCount: number) {
   );
 }
 
-function renderSentenceClassic(text: string) {
+function renderSentenceClassic(text: string, wordCount = 1) {
   const parts = text.split("[MASK]");
   return (
     <span>
       {parts[0]}
-      <span className="blank-line" aria-label="blank" />
+      <BlankPlaceholder wordCount={wordCount} />
       {parts[1]}
     </span>
   );
@@ -591,10 +614,10 @@ export default function Game() {
               {/* Sentence */}
               <p className="font-display text-xl sm:text-2xl leading-relaxed mb-8 text-[var(--color-foreground)]">
                 {gameMode === "consecutive"
-                  ? renderSentenceConsecutive(currentSentence.text, maskIndex, revealedAnswers)
+                  ? renderSentenceConsecutive(currentSentence.text, maskIndex, revealedAnswers, currentSentence.maskWordCounts)
                   : gameMode === "parallel"
-                  ? renderSentenceParallel(currentSentence.text, maskCount)
-                  : renderSentenceClassic(currentSentence.text)}
+                  ? renderSentenceParallel(currentSentence.text, currentSentence.maskWordCounts)
+                  : renderSentenceClassic(currentSentence.text, currentSentence.maskWordCounts?.[0] ?? 1)}
               </p>
 
               {/* ── CLASSIC / CONSECUTIVE input ───────────────────────────── */}

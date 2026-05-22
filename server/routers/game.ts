@@ -218,6 +218,8 @@ export const gameRouter = router({
           const masksArr: string[] = (() => {
             try { return JSON.parse(s.masks || "[]"); } catch { return [s.answer]; }
           })();
+          // Word count per mask so the frontend can render _ _ _ placeholders
+          const maskWordCounts = masksArr.map((m) => m.trim().split(/\s+/).length);
           return {
             id: s.id,
             text: s.text,
@@ -225,6 +227,7 @@ export const gameRouter = router({
             domain: s.domain,
             gameMode: s.gameMode,
             maskCount: masksArr.length,
+            maskWordCounts,
           };
         }),
       };

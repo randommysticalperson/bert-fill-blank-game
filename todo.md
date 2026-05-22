@@ -71,3 +71,10 @@
 - [x] Frontend: progress bar shows "Blank X of Y" within the current sentence
 - [x] Frontend: only move to next sentence when all masks in current sentence are done
 - [x] Tests: update consecutive scoring tests to reflect within-sentence progression
+
+## Feature: Word-count blank placeholders (_ vs _ _)
+- [x] Read schema and Game.tsx sentence renderer
+- [x] Derive word count from answer at render time (no schema change needed)
+- [x] Render [MASK] as _ _ _ (one underscore per word) in the sentence display
+- [x] Update all three modes (classic, consecutive, parallel)
+- [x] Test and checkpoint
