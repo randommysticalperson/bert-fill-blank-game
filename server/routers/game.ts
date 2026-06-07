@@ -278,7 +278,7 @@ function isMatchWithType(
 }
 
 // ── BERT model keys ──────────────────────────────────────────────────────────
-const BERT_MODEL_KEYS = ["general", "medical", "clinical", "science", "finance", "legal"] as const;
+const BERT_MODEL_KEYS = ["general", "medical", "clinical", "science", "finance", "legal", "cbow"] as const;
 type BertModelKey = (typeof BERT_MODEL_KEYS)[number];
 
 const GAME_MODE_KEYS = ["classic", "consecutive", "parallel"] as const;

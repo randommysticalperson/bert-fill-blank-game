@@ -108,3 +108,12 @@
 - [x] Update ConsecutiveGame to show match quality per step
 - [x] Update tests to cover flexible matching cases
 - [x] Checkpoint and deliver
+
+## Feature: CBOW (Word2Vec) Model
+- [x] Add CBOW Word2Vec support to bert_sidecar/server.py (context-bag averaging + nearest-neighbor prediction)
+- [x] Add cbow export/download script to bert_sidecar/export_model.py
+- [x] Add "cbow" as a selectable model on the Home screen with description
+- [x] Update bert_sidecar/requirements.txt with gensim dependency
+- [x] Seed CBOW-appropriate sentences in the database (bertCategory = "cbow")
+- [x] Update bert_sidecar/README.md with CBOW setup instructions
+- [x] Tests and checkpoint

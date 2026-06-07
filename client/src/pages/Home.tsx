@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Sparkles, BookOpen, Zap, Trophy, FlaskConical, Scale, TrendingUp, Stethoscope, Cpu, CheckCircle2, XCircle, Loader2, List, Layers, AlignLeft } from "lucide-react";
+import { Sparkles, BookOpen, Zap, Trophy, FlaskConical, Scale, TrendingUp, Stethoscope, Cpu, CheckCircle2, XCircle, Loader2, List, Layers, AlignLeft, BrainCircuit } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
 type Difficulty = "Easy" | "Medium" | "Hard";
-type BertModel = "general" | "medical" | "clinical" | "science" | "finance" | "legal";
+type BertModel = "general" | "medical" | "clinical" | "science" | "finance" | "legal" | "cbow";
 type GameMode = "classic" | "consecutive" | "parallel";
 
 const GAME_MODES: {
@@ -131,6 +131,13 @@ const BERT_MODELS: {
     description: "LegalBERT — EU/UK legislation & US court cases",
     icon: <Scale className="w-4 h-4" />,
     hfId: "legal-bert-base-uncased",
+  },
+  {
+    key: "cbow",
+    label: "CBOW",
+    description: "Word2Vec CBOW — Google News 300-d context-bag prediction",
+    icon: <BrainCircuit className="w-4 h-4" />,
+    hfId: "word2vec-google-news-300",
   },
 ];
 

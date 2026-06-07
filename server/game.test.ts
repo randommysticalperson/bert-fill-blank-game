@@ -205,10 +205,10 @@ describe("getSentencesByDifficulty category filtering", () => {
 });
 
 describe("BERT category keys", () => {
-  const VALID_CATEGORIES = ["general", "medical", "clinical", "science", "finance", "legal"] as const;
+  const VALID_CATEGORIES = ["general", "medical", "clinical", "science", "finance", "legal", "cbow"] as const;
 
-  it("has exactly 6 categories", () => {
-    expect(VALID_CATEGORIES).toHaveLength(6);
+  it("has exactly 7 categories", () => {
+    expect(VALID_CATEGORIES).toHaveLength(7);
   });
 
   it("includes all expected domain categories", () => {
@@ -218,6 +218,13 @@ describe("BERT category keys", () => {
     expect(VALID_CATEGORIES).toContain("finance");
     expect(VALID_CATEGORIES).toContain("legal");
     expect(VALID_CATEGORIES).toContain("general");
+    expect(VALID_CATEGORIES).toContain("cbow");
+  });
+
+  it("CBOW is the only non-BERT model", () => {
+    const bertModels = VALID_CATEGORIES.filter((c) => c !== "cbow");
+    expect(bertModels).toHaveLength(6);
+    expect(VALID_CATEGORIES).toContain("cbow");
   });
 });
 

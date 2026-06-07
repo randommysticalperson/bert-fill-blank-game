@@ -24,6 +24,8 @@ The Node.js server checks the sidecar health every 30 seconds. If it is unavaila
 
 ## Available Models
 
+### BERT Models (ONNX Runtime — bidirectional Transformer MLM)
+
 | Key | Model | Domain | Hugging Face ID |
 |---|---|---|---|
 | `general` | Google BERT | General English | `google-bert/bert-base-uncased` |
@@ -33,7 +35,23 @@ The Node.js server checks the sidecar health every 30 seconds. If it is unavaila
 | `finance` | FinBERT | Financial text (10-K, earnings calls) | `yiyanghkust/finbert-pretrain` |
 | `legal` | LegalBERT | EU/UK legislation, US court cases | `nlpaueb/legal-bert-base-uncased` |
 
-Each model is ~440 MB on disk before quantization, ~110 MB after INT8 quantization.
+Each BERT model is ~440 MB on disk before quantization, ~110 MB after INT8 quantization.
+
+### CBOW Model (Gensim Word2Vec — context-bag averaging)
+
+| Key | Model | Vocabulary | Source | Size |
+|---|---|---|---|---|
+| `cbow` | Google News Word2Vec 300-d | 3 million words | Google News corpus | ~1.6 GB |
+
+**How CBOW prediction works:** Given a sentence with `[MASK]`, the sidecar extracts all non-stopword context words from both sides of the blank, looks up their 300-dimensional Word2Vec embeddings, averages them into a single context vector, and returns the top-N most similar words from the vocabulary by cosine similarity. Unlike BERT, CBOW has no attention mechanism and treats context as an unordered bag of words — making it faster but less sensitive to word order.
+
+**To download the CBOW model:**
+
+```bash
+python -m bert_sidecar.export_model --model cbow
+```
+
+This downloads the ~1.6 GB Google News binary from Hugging Face (`fse/word2vec-google-news-300`). No ONNX export step is needed — the binary is loaded directly by gensim.
 
 ---
 

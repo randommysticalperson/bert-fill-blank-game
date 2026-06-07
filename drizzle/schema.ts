@@ -54,7 +54,7 @@ export const sentences = mysqlTable("sentences", {
   /** Optional domain tag, e.g. "science", "history" */
   domain: varchar("domain", { length: 64 }).default("general"),
   /** BERT model category — matches the model selector keys in the UI */
-  bertCategory: mysqlEnum("bertCategory", ["general", "medical", "clinical", "science", "finance", "legal"]).notNull().default("general"),
+  bertCategory: mysqlEnum("bertCategory", ["general", "medical", "clinical", "science", "finance", "legal", "cbow"]).notNull().default("general"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

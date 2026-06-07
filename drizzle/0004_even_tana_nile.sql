@@ -1,0 +1,1 @@
+ALTER TABLE `sentences` MODIFY COLUMN `bertCategory` enum('general','medical','clinical','science','finance','legal','cbow') NOT NULL DEFAULT 'general';

@@ -26,6 +26,15 @@ from pathlib import Path
 
 # ── Model registry ────────────────────────────────────────────────────────────
 # Each entry: (huggingface_model_id, mask_token, description)
+# ── CBOW / Word2Vec models ───────────────────────────────────────────────────
+CBOW_MODELS = {
+    "cbow": (
+        "https://huggingface.co/fse/word2vec-google-news-300/resolve/main/GoogleNews-vectors-negative300.bin.gz",
+        "Word2Vec CBOW — Google News 300-dimensional vectors (3M words)",
+    ),
+}
+
+# ── BERT / Transformer models ─────────────────────────────────────────────────
 MODELS = {
     "general": (
         "google-bert/bert-base-uncased",
@@ -60,6 +69,46 @@ MODELS = {
 }
 
 BASE_DIR = Path(__file__).parent / "models"
+
+
+def download_cbow(key: str) -> None:
+    """Download a Word2Vec binary from Hugging Face (no ONNX export needed)."""
+    if key not in CBOW_MODELS:
+        print(f"[ERROR] Unknown CBOW model key '{key}'.")
+        sys.exit(1)
+
+    url, description = CBOW_MODELS[key]
+    out_dir = BASE_DIR / key
+    out_dir.mkdir(parents=True, exist_ok=True)
+    filename = url.split("/")[-1]  # GoogleNews-vectors-negative300.bin.gz
+    dest = out_dir / filename
+
+    print(f"\n{'='*60}")
+    print(f"  Model : {key}")
+    print(f"  Desc  : {description}")
+    print(f"  URL   : {url}")
+    print(f"  Output: {dest}")
+    print(f"{'='*60}\n")
+
+    if dest.exists():
+        print(f"  Already downloaded: {dest} ({dest.stat().st_size / 1e6:.0f} MB)")
+        print(f"\n  '{key}' is ready.\n")
+        return
+
+    print("[1/1] Downloading Word2Vec binary (~1.6 GB) — this takes a few minutes…")
+    import urllib.request
+
+    def _progress(block_num, block_size, total_size):
+        downloaded = block_num * block_size
+        if total_size > 0:
+            pct = min(100, downloaded * 100 // total_size)
+            mb = downloaded / 1e6
+            total_mb = total_size / 1e6
+            print(f"\r      {pct:3d}%  {mb:.0f} / {total_mb:.0f} MB", end="", flush=True)
+
+    urllib.request.urlretrieve(url, str(dest), reporthook=_progress)
+    print(f"\n      Saved: {dest} ({dest.stat().st_size / 1e6:.0f} MB)")
+    print(f"\n  '{key}' download complete.\n")
 
 
 def export_model(key: str) -> None:
@@ -120,20 +169,25 @@ def export_model(key: str) -> None:
 
 
 def main() -> None:
+    all_keys = [*MODELS.keys(), *CBOW_MODELS.keys(), "all"]
     parser = argparse.ArgumentParser(
-        description="Export a domain-specific BERT model to ONNX + INT8 quantized format."
+        description="Export a domain-specific BERT model to ONNX + INT8, or download a CBOW Word2Vec model."
     )
     parser.add_argument(
         "--model",
         default="general",
-        choices=[*MODELS.keys(), "all"],
-        help="Which model to export (default: general)",
+        choices=all_keys,
+        help="Which model to export/download (default: general)",
     )
     args = parser.parse_args()
 
     if args.model == "all":
         for key in MODELS:
             export_model(key)
+        for key in CBOW_MODELS:
+            download_cbow(key)
+    elif args.model in CBOW_MODELS:
+        download_cbow(args.model)
     else:
         export_model(args.model)
 

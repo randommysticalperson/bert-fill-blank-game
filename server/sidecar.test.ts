@@ -137,10 +137,10 @@ describe("sidecarPredict()", () => {
 });
 
 describe("BERT model key validation", () => {
-  const VALID_KEYS = ["general", "medical", "clinical", "science", "finance", "legal"] as const;
+  const VALID_KEYS = ["general", "medical", "clinical", "science", "finance", "legal", "cbow"] as const;
 
-  it("contains exactly 6 model keys", () => {
-    expect(VALID_KEYS).toHaveLength(6);
+  it("contains exactly 7 model keys", () => {
+    expect(VALID_KEYS).toHaveLength(7);
   });
 
   it("includes all expected domain keys", () => {
@@ -150,5 +150,13 @@ describe("BERT model key validation", () => {
     expect(VALID_KEYS).toContain("science");
     expect(VALID_KEYS).toContain("finance");
     expect(VALID_KEYS).toContain("legal");
+    expect(VALID_KEYS).toContain("cbow");
+  });
+
+  it("CBOW uses Word2Vec context-bag prediction", () => {
+    // CBOW is the only non-BERT model in the list — it uses gensim Word2Vec
+    const nonBertModels = VALID_KEYS.filter((k) => k === "cbow");
+    expect(nonBertModels).toHaveLength(1);
+    expect(nonBertModels[0]).toBe("cbow");
   });
 });
